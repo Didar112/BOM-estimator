@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Zipper BOM Calculator & Cost Estimator - Professional manufacturing bill of materials and production cost estimation tool for Bangladeshi garment and trim industries.">
+  <title>Zipper BOM Calculator & Cost Estimator</title>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/responsive.css">
+
+  <!-- Client-Side PDF Generation Dependencies (jsPDF & AutoTable) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+  <!-- ==================== TOP APPLICATION HEADER ==================== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="brand-icon-wrapper" aria-hidden="true">
+          <!-- Zipper Glyph SVG Icon -->
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width: 26px; height: 26px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v20M9 5h6M9 9h6M9 13h6M9 17h6M7 21h10a1 1 0 001-1V4a1 1 0 00-1-1H7a1 1 0 00-1 1v16a1 1 0 001 1z" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>
+            Zipper BOM Calculator
+            <span class="brand-badge">Factory Edition</span>
+          </h1>
+          <p class="brand-subtitle">Consolidated material requirements, factory allowances &amp; calculation breakdown</p>
+        </div>
+      </div>
+
+
+      <div class="header-actions">
+        <button type="button" id="btn-new-estimate" class="btn btn-outline" title="Start a fresh blank estimate">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          New Estimate
+        </button>
+        <button type="button" id="btn-saved-estimates" class="btn btn-outline" title="View saved estimate snapshots">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+          </svg>
+          Saved Estimates
+          <span id="badge-saved-count" class="badge-counter">0</span>
+        </button>
+        <button type="button" id="btn-export-pdf" class="btn btn-primary" title="Export current estimate as a professional PDF report">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Export PDF
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== MAIN CONTENT CONTAINER ==================== -->
+  <main class="app-container">
+    <div class="main-layout-grid">
+
+      <!-- ==================== LEFT MAIN AREA (68%) ==================== -->
+      <div class="left-column">
+
+        <!-- CARD 1: PRODUCT INFORMATION -->
+        <section class="card" id="section-product-info">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon" aria-hidden="true">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:20px;height:20px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+              </div>
+              <div>
+                <h2 class="card-title">1. Product Information</h2>
+                <p class="card-subtitle">Configure independent category groups &amp; multiple product variants</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <!-- Dynamic Category Groups Container -->
+            <div id="category-groups-container" class="category-groups-container">
+              <!-- Dynamically populated via app.js -->
+            </div>
+
+            <!-- Button: Add New Category Group -->
+            <div class="add-category-wrapper mt-4 pt-2">
+              <button type="button" id="btn-add-category-group" class="btn btn-outline btn-add-category-group" title="Add a new independent Category Group">
+                <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+                </svg>
+                + Add New Category
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- CARD 2: CONSOLIDATED BILL OF MATERIALS (BOM) -->
+        <section class="card" id="section-bom-materials">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon" aria-hidden="true">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:20px;height:20px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <div>
+                <h2 class="card-title">2. Bill of Materials (BOM)</h2>
+                <p class="card-subtitle">Consolidated material requirements across all configured category groups &amp; variants</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button type="button" id="btn-add-custom-material" class="btn btn-sm btn-outline">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                + Add Custom Material
+              </button>
+              <button type="button" id="btn-reset-bom" class="btn btn-sm btn-ghost" title="Reset all variants to suggested defaults">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reset BOM
+              </button>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <!-- Consolidated BOM Table Container (ONLY ONE TABLE) -->
+            <div id="consolidated-bom-container">
+              <!-- Dynamically rendered via app.js -->
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ==================== RIGHT STICKY COLUMN (40%) ==================== -->
+      <div class="right-column">
+
+        <!-- CARD: CALCULATION DETAILS (MATERIAL INSPECTOR) -->
+        <section class="card card-formula-details" id="section-formula-details">
+          <div class="calc-sidebar-header">
+            <div class="calc-header-top">
+              <div class="calc-title-badge-group">
+                <div class="card-icon icon-math-sm" aria-hidden="true">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="calc-sidebar-title">Calculation Details</h3>
+                  <span class="calc-sidebar-subtitle">Material-specific factory math</span>
+                </div>
+              </div>
+
+              <button type="button" id="btn-toggle-formula-details" class="btn btn-xs btn-outline btn-collapse-calc" title="Toggle Calculation Details">
+                <span id="label-toggle-formula">Hide</span>
+                <svg class="w-3 h-3 inline ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:11px;height:11px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="card-body calc-sidebar-body" id="formula-details-body">
+            <!-- Dynamically populated via app.js -->
+          </div>
+        </section>
+
+
+
+      </div>
+
+    </div>
+
+
+  </main>
+
+  <!-- ==================== MODALS & DRAWERS ==================== -->
+
+  <!-- 1. SAVE ESTIMATE MODAL -->
+  <div id="modal-save-estimate" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-save-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-save-title" class="modal-title">Save Estimate Snapshot</h3>
+        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <form id="form-save-estimate">
+        <div class="modal-body">
+          <p class="text-xs text-muted mb-3">
+            Saves a complete standalone snapshot of all product parameters, BOM materials, prices, wastage %, and labor settings to your browser storage.
+          </p>
+          <div class="form-group">
+            <label for="input-save-name" class="form-label">Estimate / Project Name <span class="required-star">*</span></label>
+            <input type="text" id="input-save-name" class="form-input" placeholder="e.g. Men Padded Jacket - Nylon #5" required>
+          </div>
+          <div class="form-group mt-3">
+            <label for="input-save-ref" class="form-label">Order / Reference Number</label>
+            <input type="text" id="input-save-ref" class="form-input font-mono" placeholder="e.g. ORD-2026-0812">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Snapshot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. SAVED ESTIMATES DRAWER / MODAL -->
+  <div id="modal-saved-estimates" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-saved-title">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-saved-title" class="modal-title">Saved Estimate History</h3>
+          <p class="text-xs text-muted mt-1">Browse, restore, duplicate, or export previous BOM estimations</p>
+        </div>
+        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Search and Backup Bar -->
+        <div class="flex justify-between items-center gap-3 mb-4">
+          <div class="form-group" style="flex: 1;">
+            <input type="text" id="input-search-saved" class="form-input form-input-sm" placeholder="🔍 Search estimates by name, reference, type...">
+          </div>
+          <div class="flex gap-2">
+            <button type="button" id="btn-export-backup" class="btn btn-sm btn-outline" title="Export all estimates as a JSON backup file">
+              Download JSON Backup
+            </button>
+            <label class="btn btn-sm btn-outline" style="cursor: pointer;" title="Import estimates from JSON backup file">
+              Restore Backup
+              <input type="file" id="input-import-backup" accept=".json" style="display: none;">
+            </label>
+          </div>
+        </div>
+
+        <!-- Estimates List Container -->
+        <div id="saved-estimates-list" class="saved-estimates-list">
+          <!-- Dynamically populated via app.js -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-modal-cancel">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. ADD CUSTOM MATERIAL MODAL -->
+  <div id="modal-add-material" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-add-mat-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-add-mat-title" class="modal-title">Add Custom Material to BOM</h3>
+        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <form id="form-add-material">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="select-custom-target-variant" class="form-label">Add to Variant <span class="required-star">*</span></label>
+            <select id="select-custom-target-variant" class="form-select">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <div class="form-group mt-3">
+            <label for="input-custom-comp-name" class="form-label">Component Name <span class="required-star">*</span></label>
+            <input type="text" id="input-custom-comp-name" class="form-input" placeholder="e.g. Laser Engraved Metal Tag" required>
+          </div>
+
+          <div class="form-group mt-3">
+            <label for="input-custom-mat-desc" class="form-label">Material / Specification Description</label>
+            <input type="text" id="input-custom-mat-desc" class="form-input" placeholder="e.g. Zinc alloy with electroplated antique brass finish">
+          </div>
+
+          <div class="form-grid-2 mt-3">
+            <div class="form-group">
+              <label for="select-custom-unit" class="form-label">Unit of Measure <span class="required-star">*</span></label>
+              <select id="select-custom-unit" class="form-select">
+                <option value="pcs" selected>pcs (Pieces)</option>
+                <option value="yd">yd (Yards)</option>
+                <option value="m">m (Meters)</option>
+                <option value="doz">doz (Dozen)</option>
+                <option value="kg">kg (Kilograms)</option>
+                <option value="set">set</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="input-custom-qty" class="form-label">Qty Required Per Zipper <span class="required-star">*</span></label>
+              <input type="number" id="input-custom-qty" class="form-input font-mono" value="1" min="0.001" step="any" required>
+            </div>
+          </div>
+
+          <div class="form-group mt-3">
+            <label class="flex items-center gap-2" style="cursor: pointer;">
+              <input type="checkbox" id="check-custom-length-dep">
+              <span class="text-xs text-slate-700 font-semibold">Quantity depends on Zipper Length + Cutting Allowance</span>
+            </label>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add to BOM</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- ==================== JAVASCRIPT APPLICATION MODULES ==================== -->
+  <script src="js/unitConversion.js"></script>
+  <script src="js/formulas/cz.js"></script>
+  <script src="js/formulas/mz.js"></script>
+  <script src="js/formulas/wire.js"></script>
+  <script src="js/formulas/pz.js"></script>
+  <script src="js/materials.js"></script>
+  <script src="js/bomRules.js"></script>
+  <script src="js/calculations.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/pdfExport.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
+

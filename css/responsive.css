@@ -1,0 +1,196 @@
+/* ==========================================================================
+   ZIPPER BOM CALCULATOR & COST ESTIMATOR - RESPONSIVE STYLESHEET
+   ========================================================================== */
+
+/* --- Large Desktops & Tablets (Max 1180px) --- */
+@media (max-width: 1180px) {
+  .main-layout-grid {
+    grid-template-columns: minmax(0, 62%) minmax(300px, 38%);
+    gap: 18px;
+  }
+}
+
+/* --- Tablets & Small Laptops (Max 1024px) --- */
+@media (max-width: 1024px) {
+  .app-container {
+    padding: 0 14px 30px;
+  }
+
+  .main-layout-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .right-column {
+    position: static;
+    top: auto;
+    max-height: none;
+  }
+
+  .card-formula-details {
+    max-height: none;
+    height: auto;
+  }
+
+  .calc-sidebar-body {
+    max-height: 520px;
+  }
+
+
+  .form-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .form-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- Mobile Landscape & Small Tablets (Max 768px) --- */
+@media (max-width: 768px) {
+  .header-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 14px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .header-actions .btn {
+    flex: 1 1 auto;
+    font-size: 0.8rem;
+    padding: 6px 10px;
+  }
+
+  .brand-text h1 {
+    font-size: 1.15rem;
+  }
+
+  .brand-subtitle {
+    font-size: 0.74rem;
+  }
+
+  .card-header {
+    padding: 12px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .card-header .header-subtotal-badge {
+    align-self: flex-start;
+  }
+
+  .card-body {
+    padding: 14px;
+  }
+
+  .form-grid-2,
+  .form-grid-3,
+  .form-grid-4 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .category-selector-wrapper {
+    padding: 14px 16px;
+  }
+
+  .category-dynamic-params-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @media (max-width: 640px) {
+    .category-controls-grid {
+      flex-direction: column;
+      gap: 12px;
+    }
+    .category-control-item,
+    .category-control-main,
+    .category-control-loss,
+    .category-control-slider {
+      width: 100%;
+      flex: 1 1 100%;
+    }
+    .category-dynamic-params-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .category-dynamic-params-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .table-responsive {
+    border-radius: var(--radius-sm);
+  }
+
+  .bom-table th,
+  .bom-table td {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+
+  .other-cost-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .other-cost-col-action {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .unit-breakdown-pills {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-layout {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .chart-legend {
+    width: 100%;
+  }
+
+  .modal-box {
+    margin: 10px;
+    max-height: 90vh;
+  }
+}
+
+/* --- Small Mobile Phones (Max 480px) --- */
+@media (max-width: 480px) {
+  .brand-icon-wrapper {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brand-text h1 {
+    font-size: 1.05rem;
+  }
+
+  .total-cost-amount {
+    font-size: 1.5rem;
+  }
+
+  .toast-container {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .toast-item {
+    max-width: 100%;
+  }
+}
