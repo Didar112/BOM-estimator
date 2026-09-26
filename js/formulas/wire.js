@@ -304,7 +304,12 @@ function calculateWireMaster(rawVariants, options = {}) {
 
   for (const [type, vars] of Object.entries(typeGroups)) {
     if (vars.length > 0) {
-      const res = calculateWireGroup(vars, type, customLossPercent, wireParams);
+      let typeLoss = customLossPercent;
+      const classKey = (type === '#3') ? 'WIRE#3' : (type === '#5_long' ? 'WIRE#5_long' : 'WIRE#5_normal');
+      if (options.classLossPercentages && options.classLossPercentages[classKey] !== undefined && options.classLossPercentages[classKey] !== null) {
+        typeLoss = Number(options.classLossPercentages[classKey]);
+      }
+      const res = calculateWireGroup(vars, type, typeLoss, wireParams);
       groupResults[type] = res;
       totalOrderQuantity += res.totalQuantity;
       if (res.totalQuantity > maxQtyInType) {

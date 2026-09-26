@@ -90,12 +90,12 @@ assertEquals(cz3DefaultResult.activeParams.tollilon2Divisor, 9500.0, 'CZ#3 Defau
 assertEquals(cz3DefaultResult.activeParams.inchAllowance, 1.58, 'CZ#3 Default Inch Allowance = 1.58');
 assertEquals(cz3DefaultResult.activeParams.cmAllowance, 4.0, 'CZ#3 Default CM Allowance = 4.0');
 assertEquals(cz3DefaultResult.resinKg, 3.0, 'CZ#3 Resin = 3000 / 1000 = 3.0 KG');
-assertEquals(cz3DefaultResult.uTopKg, 0, 'CZ#3 U-Top is 0');
+assertEquals(cz3DefaultResult.uTopQty || 0, 0, 'CZ#3 U-Top is 0');
 
 const cz3BOM = buildCZConsolidatedBOMRows(cz3DefaultResult);
 assert(cz3BOM.some(r => r.component === 'TOTL TAPE KG'), 'CZ#3 BOM has TOTL TAPE KG');
 assert(cz3BOM.some(r => r.component === 'RESIN FOR CZ#3'), 'CZ#3 BOM has RESIN FOR CZ#3');
-assert(!cz3BOM.some(r => r.component === 'ULTRASONIC U-TOP'), 'CZ#3 BOM does NOT have ULTRASONIC U-TOP');
+assert(!cz3BOM.some(r => r.component === 'U-TOP'), 'CZ#3 BOM does NOT have U-TOP');
 
 // 2. CZ#5 DEFAULT PARAMETERS & VERIFICATION
 console.log('\n--- 2. Testing CZ#5 Default Parameters ---');
@@ -110,18 +110,17 @@ assertEquals(cz5DefaultResult.activeParams.tapeDivisor, 54.5, 'CZ#5 Default Tape
 assertEquals(cz5DefaultResult.activeParams.topStopFactor, 0.04, 'CZ#5 Default Top Stop Factor = 0.04');
 assertEquals(cz5DefaultResult.activeParams.bottomStopFactor, 0.04, 'CZ#5 Default Bottom Stop Factor = 0.04');
 assertEquals(cz5DefaultResult.activeParams.resinDivisor, 900.0, 'CZ#5 Default Resin Divisor = 900.0');
-assertEquals(cz5DefaultResult.activeParams.uTopFactor, 0.074, 'CZ#5 Default U-Top Factor = 0.074');
 assertEquals(cz5DefaultResult.activeParams.tollilon1Divisor, 7700.0, 'CZ#5 Default Tollilon 1 Divisor = 7700');
 assertEquals(cz5DefaultResult.activeParams.tollilon2Divisor, 8600.0, 'CZ#5 Default Tollilon 2 Divisor = 8600');
 assertEquals(cz5DefaultResult.activeParams.inchAllowance, 1.78, 'CZ#5 Default Inch Allowance = 1.78');
 assertEquals(cz5DefaultResult.activeParams.cmAllowance, 4.5, 'CZ#5 Default CM Allowance = 4.5');
 assertEquals(cz5DefaultResult.resinKg, 3000 / 900, 'CZ#5 Resin = 3000 / 900 = 3.333 KG');
-assertEquals(cz5DefaultResult.uTopKg, (3000 * 0.074) / 1000, 'CZ#5 U-Top = 0.222 KG');
+assertEquals(cz5DefaultResult.uTopQty, 6000, 'CZ#5 Default U-Top = 3000 * 2 = 6,000 pcs');
 
 const cz5BOM = buildCZConsolidatedBOMRows(cz5DefaultResult);
 assert(cz5BOM.some(r => r.component === 'TOTL TAPE KG'), 'CZ#5 BOM has TOTL TAPE KG');
 assert(cz5BOM.some(r => r.component === 'CZ#5 RESIN'), 'CZ#5 BOM has CZ#5 RESIN');
-assert(cz5BOM.some(r => r.component === 'ULTRASONIC U-TOP'), 'CZ#5 BOM HAS ULTRASONIC U-TOP');
+assert(cz5BOM.some(r => r.component === 'U-TOP'), 'CZ#5 BOM HAS U-TOP');
 
 // 3. TESTING INDIVIDUAL PARAMETER OVERRIDES FOR CZ#3
 console.log('\n--- 3. Testing Individual CZ#3 Parameter Overrides ---');
@@ -173,12 +172,12 @@ assertEquals(cz3CustomAllowance.baseChainConsumptionMtr, expectedBaseChain, 'CZ#
 // 4. TESTING INDIVIDUAL PARAMETER OVERRIDES FOR CZ#5
 console.log('\n--- 4. Testing Individual CZ#5 Parameter Overrides ---');
 
-// Override U-Top Factor: 0.074 -> 0.08
-const cz5CustomUTop = calculateCZGroup(cz5Variants, '#5', 3.0, 1.5, { uTopFactor: 0.08 });
-assertEquals(cz5CustomUTop.uTopKg, (3000 * 0.08) / 1000, 'CZ#5 U-Top = (3000 * 0.08) / 1000 = 0.24 KG');
-const cz5UTopBOM = buildCZConsolidatedBOMRows(cz5CustomUTop);
-const uTopRow = cz5UTopBOM.find(r => r.component === 'ULTRASONIC U-TOP');
-assert(uTopRow.calculationDetail.steps[1].formula.includes('0.08'), 'CZ#5 U-Top Step shows 0.08');
+// Override U-Top Special Order: default (2 pcs/zipper) vs special (1 pc/zipper)
+const cz5SpecialUTop = calculateCZGroup(cz5Variants, '#5', 3.0, 1.5, { isSpecialUTopOrder: true });
+assertEquals(cz5SpecialUTop.uTopQty, 3000 * 1, 'CZ#5 Special U-Top = 3000 * 1 = 3000 Pcs');
+const cz5UTopBOM = buildCZConsolidatedBOMRows(cz5SpecialUTop);
+const uTopRow = cz5UTopBOM.find(r => r.component === 'U-TOP');
+assert(uTopRow.calculationDetail.steps[1].formula.includes('1 pc/zipper'), 'CZ#5 Special U-Top Step shows 1 pc/zipper');
 
 // 5. TEST SCENARIO: MIXED CZ#3 AND CZ#5 VARIANTS (USER'S EXACT TEST CASE)
 console.log('\n--- 5. Testing Mixed CZ#3 and CZ#5 Variants in Same Group ---');
@@ -207,7 +206,7 @@ assertEquals(resCz5.sliderQuantity, 4000 * 1.015, 'CZ#5 Slider = 4000 * 1.015 = 
 assertEquals(resCz5.topStopKg, 4000 * 0.04 / 1000, 'CZ#5 Top Stop = 4000 * 0.04 / 1000 = 0.16 KG');
 assertEquals(resCz5.bottomStopKg, 4000 * 0.04 / 1000, 'CZ#5 Bottom Stop = 4000 * 0.04 / 1000 = 0.16 KG');
 assertEquals(resCz5.resinKg, 4000 / 900, 'CZ#5 Resin = 4000 / 900 = 4.444 KG');
-assertEquals(resCz5.uTopKg, 4000 * 0.074 / 1000, 'CZ#5 U-Top = 4000 * 0.074 / 1000 = 0.296 KG');
+assertEquals(resCz5.uTopQty, 4000 * 2, 'CZ#5 U-Top = 4000 * 2 = 8000 Pcs');
 
 // Verify CZ#3 Independent Calculations (5,380 pcs)
 assertEquals(resCz3.totalQuantity, 5380, 'CZ#3 Total Quantity = 3380 + 2000 = 5,380 pcs');
@@ -217,7 +216,7 @@ assertEquals(resCz3.sliderQuantity, 5380 * 1.015, 'CZ#3 Slider = 5380 * 1.015 = 
 assertEquals(resCz3.topStopKg, 5380 * 0.02 / 1000, 'CZ#3 Top Stop = 5380 * 0.02 / 1000 = 0.1076 KG');
 assertEquals(resCz3.bottomStopKg, 5380 * 0.03 / 1000, 'CZ#3 Bottom Stop = 5380 * 0.03 / 1000 = 0.1614 KG');
 assertEquals(resCz3.resinKg, 5380 / 1000, 'CZ#3 Resin = 5380 / 1000 = 5.38 KG');
-assertEquals(resCz3.uTopKg, 0, 'CZ#3 U-Top is 0');
+assertEquals(resCz3.uTopQty, 0, 'CZ#3 U-Top is 0');
 
 // Verify Single Consolidated BOM Rows
 const mixedBOM = mixedMaster.materials.processedRows;
@@ -233,7 +232,7 @@ assert(mixedBOM.some(r => r.materialName === 'CZ#5 Resin'), 'BOM contains CZ#5 R
 assert(mixedBOM.some(r => r.materialName === 'Resin for CZ#3'), 'BOM contains Resin for CZ#3');
 assert(mixedBOM.some(r => r.materialName === 'Tollilon Flat Wire (CZ#5)'), 'BOM contains Tollilon Flat Wire (CZ#5)');
 assert(mixedBOM.some(r => r.materialName === 'Tollilon Flat Wire (CZ#3)'), 'BOM contains Tollilon Flat Wire (CZ#3)');
-assert(mixedBOM.some(r => r.materialName === 'Ultrasonic U-Top (CZ#5)'), 'BOM contains Ultrasonic U-Top (CZ#5)');
+assert(mixedBOM.some(r => r.materialName === 'U-Top (CZ#5)'), 'BOM contains U-Top (CZ#5)');
 
 // Verify Calculation Details Isolation
 const slider5Row = mixedBOM.find(r => r.materialName === 'Slider CZ#5 (+1.5% Add.)');

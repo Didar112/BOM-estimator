@@ -20,6 +20,7 @@ let appState = {
         color: '',
         remarks: '',
         lossPercent: 3.0,
+        classLossOverrides: {},
         variants: [
           {
             id: 'var_1',
@@ -215,6 +216,67 @@ function bindEvents() {
       renderSavedEstimatesList(e.target.value);
     });
   }
+
+  // Delegated Keystroke Listeners on Category Groups Container for instantaneous reactivity
+  const catGroupsContainer = document.getElementById('category-groups-container');
+  if (catGroupsContainer) {
+    ['input', 'keyup', 'change', 'paste'].forEach(evtName => {
+      catGroupsContainer.addEventListener(evtName, (e) => {
+        const target = e.target;
+        if (!target) return;
+
+        // Check if event occurred on quantity or length input
+        if (target.classList && (target.classList.contains('input-var-qty') || target.classList.contains('input-var-length'))) {
+          const { groupId, varId } = getEventGroupAndVarIds(target);
+          const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+          const v = findVariant(groupId, varId);
+          if (!v || !group) return;
+
+          const numVal = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+          if (target.classList.contains('input-var-qty')) {
+            v.quantity = numVal;
+            if (!group.isSliderOverridden) {
+              const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+              if (getSliderDefault) {
+                const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+                const dynSliderAdd = getSliderDefault(groupQty);
+                group.sliderAdditionPercent = dynSliderAdd;
+                group.sliderAddPercent = dynSliderAdd;
+                const sliderInput = document.getElementById(`input-slider-${group.id}`);
+                if (sliderInput) {
+                  sliderInput.value = dynSliderAdd;
+                }
+              }
+            }
+          } else {
+            v.length = numVal;
+          }
+
+          // Clear class override if any
+          if (group.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+            const classKey = window.CalculatorEngine.getVariantZipperClass(v, group.category);
+            if (classKey && group.classLossOverrides[classKey] !== undefined) {
+              delete group.classLossOverrides[classKey];
+            }
+          }
+
+          // Instantly update variant loss cards on every keystroke
+          try {
+            updateClassLossDisplay(groupId);
+          } catch (err) {
+            console.error(err);
+          }
+
+          // Refresh live calculations
+          try {
+            updateLiveCalculations();
+          } catch (err) {
+            console.error(err);
+          }
+        }
+      });
+    });
+  }
 }
 
 /**
@@ -233,7 +295,15 @@ function handleAddCategoryGroup() {
     color: '',
     remarks: '',
     lossPercent: 3.0,
-    sliderAdditionPercent: 1.5,
+    classLossOverrides: {},
+    sliderAdditionPercent: 8.0,
+    sliderAddPercent: 8.0,
+    isSliderOverridden: false,
+    pinBoxLossPercent: 8.0,
+    isPinBoxLossOverridden: false,
+    pinBoxPerZipper: 1,
+    hBottomLossPercent: 8.0,
+    isHBottomLossOverridden: false,
     variants: [
       {
         id: 'var_' + Date.now() + '_1',
@@ -410,6 +480,389 @@ function renderCategoryGroups() {
 }
 
 /**
+ * Format group loss meta string for display in headers and summary cards
+ * @param {Object} group 
+ * @returns {string}
+ */
+function renderGroupLossMeta(group) {
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  if (calcEng && calcEng.consolidateGroupClasses && Array.isArray(group.variants) && group.variants.length > 0) {
+    const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+    const consolidation = calcEng.consolidateGroupClasses(group.variants, group.category, groupParams, group.classLossOverrides);
+    const parts = [];
+    for (const [classKey, cInfo] of Object.entries(consolidation)) {
+      const count = cInfo.variantCount || (cInfo.variants && cInfo.variants.length) || 1;
+      const countStr = count > 1 ? ` (${count} vars, ${Math.round(cInfo.baseChainMtr)}m)` : ` (${Math.round(cInfo.baseChainMtr)}m)`;
+      if (cInfo.effectiveLossPercent !== null && cInfo.effectiveLossPercent !== undefined) {
+        parts.push(`${classKey}${countStr}: ${cInfo.effectiveLossPercent}%`);
+      } else {
+        parts.push(`${classKey}: —`);
+      }
+    }
+    if (parts.length > 0) return parts.join(' | ');
+  }
+  return group.lossPercent !== undefined ? `${group.lossPercent}%` : '—';
+}
+
+/**
+ * Build HTML for the dynamic class-level loss percentage section within a Category Group
+ * @param {Object} group 
+ * @returns {string}
+ */
+function buildClassLossSectionHTML(group) {
+  const cat = group.category || '';
+  if (!cat || (cat !== 'cz' && cat !== 'mz' && cat !== 'pz' && cat !== 'wire')) {
+    return '';
+  }
+
+  const variants = Array.isArray(group.variants) ? group.variants : [];
+  if (variants.length === 0) {
+    return '';
+  }
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+  const userOverrides = group.classLossOverrides || {};
+
+  let classConsolidation = {};
+  if (calcEng && calcEng.consolidateGroupClasses) {
+    classConsolidation = calcEng.consolidateGroupClasses(variants, cat, groupParams, userOverrides);
+  }
+
+  const classEntries = Object.entries(classConsolidation);
+  if (classEntries.length === 0) {
+    return '';
+  }
+
+  return `
+    <div class="class-loss-container mb-3" id="class-loss-container-${group.id}">
+      <div class="class-loss-header flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-indigo-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Zipper Class Loss Percentage
+          </span>
+          <span class="text-xs text-muted font-normal">(Dynamic by class chain consumption)</span>
+        </div>
+      </div>
+
+      <div class="class-loss-grid">
+        ${classEntries.map(([classKey, cInfo]) => {
+          const isEligible = cInfo.isEligible;
+          const cleanKey = classKey.replace(/[^a-zA-Z0-9]/g, '_');
+
+          // If unsupported (e.g. PZ#8 or two_way), lossDisplayVal is blank unless manually overridden
+          let lossDisplayVal = '';
+          if (cInfo.isOverridden && cInfo.overrideVal !== null) {
+            lossDisplayVal = cInfo.overrideVal;
+          } else if (isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+            lossDisplayVal = cInfo.defaultLossPercent;
+          }
+
+          const consumptionDisplay = Math.round(cInfo.baseChainMtr).toLocaleString('en-US');
+          const exactConsumption = cInfo.baseChainMtr.toFixed(2);
+
+          return `
+            <div class="class-loss-card" id="card-class-loss-${group.id}-${cleanKey}">
+              <div class="class-loss-info-block">
+                <div class="class-loss-badge-row flex items-center gap-2">
+                  <span class="badge ${isEligible ? 'badge-primary' : 'badge-secondary'} font-bold">${escapeHtml(classKey)}</span>
+                  ${cInfo.isOverridden ? `<span class="badge badge-warning text-2xs">Custom Override</span>` : (isEligible ? `<span class="badge badge-subtle text-2xs font-normal">Chart Bracket</span>` : `<span class="badge badge-subtle text-2xs font-normal text-muted">No Dynamic Chart</span>`)}
+                </div>
+                <div class="class-loss-consumption-text mt-1 text-xs">
+                  <span class="text-muted">Combined Chain Consumption:</span>
+                  <strong class="font-mono text-slate-800 ml-1 class-loss-consumption-val">${consumptionDisplay} MTR</strong>
+                  <span class="text-muted text-3xs font-mono ml-0.5 class-loss-exact-sub">(${exactConsumption} Mtr)</span>
+                </div>
+              </div>
+
+              <div class="class-loss-input-block">
+                <label class="class-loss-label text-xs font-semibold text-slate-700 mb-1" for="input-class-loss-${group.id}-${cleanKey}">
+                  Loss Percentage:
+                </label>
+                <div class="input-with-addon class-loss-addon-wrapper">
+                  <input type="number" 
+                         id="input-class-loss-${group.id}-${cleanKey}" 
+                         class="form-input form-input-sm font-mono input-class-loss" 
+                         data-group-id="${group.id}" 
+                         data-class="${escapeHtml(classKey)}"
+                         value="${lossDisplayVal !== '' ? lossDisplayVal : ''}" 
+                         placeholder="${isEligible ? '0' : '—'}"
+                         min="0" max="100" step="0.5">
+                  <span class="input-addon input-addon-right text-xs">%</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Update the dynamic class loss display elements inside variant cards without destroying DOM or losing focus
+ * @param {string} groupId 
+ */
+function updateClassLossDisplay(groupId) {
+  const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+  if (!group) return;
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  if (!calcEng || !calcEng.consolidateGroupClasses) return;
+
+  const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+  const consolidation = calcEng.consolidateGroupClasses(group.variants, group.category, groupParams, group.classLossOverrides);
+
+  (group.variants || []).forEach(v => {
+    const classKey = calcEng.getVariantZipperClass ? calcEng.getVariantZipperClass(v, group.category) : '';
+    const cInfo = consolidation[classKey];
+    if (!cInfo) return;
+
+    const col = document.getElementById(`var-loss-col-${v.id}`);
+    if (col) {
+      const sharedCount = cInfo.variantCount || (cInfo.variants && cInfo.variants.length) || 1;
+      const isShared = sharedCount > 1;
+      const varMtr = calcEng.calculateVariantBaseChainMtr ? calcEng.calculateVariantBaseChainMtr(v, group.category, groupParams) : 0;
+      const classMtr = cInfo.baseChainMtr || 0;
+      const consumptionDisplay = Math.round(classMtr).toLocaleString('en-US');
+
+      const badge = col.querySelector('.var-class-badge');
+      if (badge) {
+        badge.textContent = `${classKey || '—'}`;
+        badge.className = `badge ${cInfo.isEligible ? (isShared ? 'badge-primary is-shared' : 'badge-primary') : 'badge-secondary'} text-3xs font-bold font-mono var-class-badge`;
+        badge.title = classKey ? (isShared ? `Class ${classKey} is shared across ${sharedCount} variants in this group. Total chain required determines the factory loss % bracket.` : `Zipper Class: ${classKey}`) : '—';
+      }
+
+      const metaContainer = col.querySelector('.variant-loss-meta');
+      if (metaContainer) {
+        if (isShared) {
+          metaContainer.innerHTML = `
+            <div class="flex items-center justify-between text-slate-500">
+              <span class="var-loss-own-mtr" title="Current variant requirement: ${varMtr.toFixed(1)} Mtr">Current: <strong class="var-loss-own-val">${Math.round(varMtr)}m</strong></span>
+              ${cInfo.isOverridden ? `<span class="var-loss-status-tag badge badge-warning text-3xs" style="padding: 0px 4px;">Custom</span>` : ''}
+            </div>
+            <div class="flex items-center justify-between text-indigo-700 font-semibold" title="Combined ${classKey} total across ${sharedCount} variants is ${classMtr.toFixed(1)} Mtr, which sets this loss %">
+              <span class="var-loss-mtr-text">Total: <strong class="var-loss-pool-val">${consumptionDisplay}m</strong></span>
+            </div>
+          `;
+        } else {
+          metaContainer.innerHTML = `
+            <div class="flex items-center justify-between text-slate-600">
+              <span class="var-loss-mtr-text" title="Pre-loss Base Chain for ${classKey} (${classMtr.toFixed(2)} Mtr)">
+                <strong class="var-loss-pool-val font-bold">${consumptionDisplay} Mtr</strong>
+              </span>
+              ${cInfo.isOverridden ? `<span class="var-loss-status-tag badge badge-warning text-3xs" style="padding: 1px 4px;">Custom</span>` : ''}
+            </div>
+          `;
+        }
+      } else {
+        // Fallback if metaContainer doesn't exist (e.g. simplified test mock DOM)
+        const mtrText = col.querySelector('.var-loss-mtr-text');
+        if (mtrText) {
+          mtrText.textContent = isShared ? `Total: ${consumptionDisplay}m` : `${consumptionDisplay} Mtr`;
+          mtrText.title = `Pre-loss Base Chain for ${classKey} (${classMtr.toFixed(2)} Mtr)`;
+        }
+        const statusTag = col.querySelector('.var-loss-status-tag');
+        if (statusTag) {
+          if (cInfo.isOverridden) {
+            statusTag.textContent = 'Custom';
+            statusTag.className = 'var-loss-status-tag badge badge-warning text-3xs';
+          } else {
+            statusTag.textContent = '';
+            statusTag.className = 'var-loss-status-tag text-3xs';
+          }
+        }
+      }
+
+      const input = col.querySelector('.input-var-loss');
+      if (input) {
+        input.setAttribute('data-class', classKey);
+        input.title = isShared ? `Shared ${classKey} pool: ${consumptionDisplay} Mtr across ${sharedCount} variants.` : (cInfo.isEligible ? `${classKey} total: ${consumptionDisplay} Mtr` : '');
+        if (document.activeElement !== input) {
+          let lossDisplayVal = '';
+          if (cInfo.isOverridden && cInfo.overrideVal !== null) {
+            lossDisplayVal = cInfo.overrideVal;
+          } else if (cInfo.isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+            lossDisplayVal = cInfo.defaultLossPercent;
+          }
+          input.value = lossDisplayVal !== '' ? lossDisplayVal : '';
+        }
+      }
+    }
+  });
+
+  const headerLossMeta = document.getElementById(`group-loss-meta-${groupId}`);
+  if (headerLossMeta) {
+    headerLossMeta.textContent = renderGroupLossMeta(group);
+  }
+}
+
+/**
+ * Extract live at-a-glance BOM calculated values for a Category Group's parameter previews
+ * @param {Object} group 
+ * @returns {Object}
+ */
+function getCategoryParamPreviewData(group) {
+  const lastCalc = (typeof appState !== 'undefined' && appState && appState.lastCalculation) ? appState.lastCalculation : null;
+  let groupResult = null;
+  if (lastCalc && Array.isArray(lastCalc.categoryGroups)) {
+    groupResult = lastCalc.categoryGroups.find(g => g.id === group.id);
+  }
+  const calc = (groupResult && groupResult.calculation) ? groupResult.calculation : null;
+  const processedRows = (groupResult && groupResult.materials && Array.isArray(groupResult.materials.processedRows))
+    ? groupResult.materials.processedRows
+    : [];
+
+  const groupVariants = group.variants || [];
+  const hasOpenEnd = groupVariants.some(v => v.zipperType === 'open_end');
+  const cat = group.category || '';
+
+  // 1. Slider preview
+  let sliderText = '—';
+  if (calc && calc.sliderQuantity !== undefined) {
+    sliderText = `Slider: ${Math.ceil(calc.sliderQuantity).toLocaleString('en-US')} Pcs`;
+  }
+
+  // 2. Pin Box preview
+  let pinBoxText = '—';
+  const pinBoxRow = processedRows.find(r => r.component === 'PIN BOX');
+  if (pinBoxRow && pinBoxRow.totalQuantity > 0) {
+    pinBoxText = `Pin Box: ${Math.round(pinBoxRow.totalQuantity).toLocaleString('en-US')} Pcs`;
+  } else if (!hasOpenEnd) {
+    pinBoxText = 'Pin Box: 0 Pcs (Closed End)';
+  } else if (calc && calc.pinBoxQuantity !== undefined) {
+    pinBoxText = `Pin Box: ${Math.round(calc.pinBoxQuantity).toLocaleString('en-US')} Pcs`;
+  }
+
+  // Previews mapping
+  const previews = {
+    slider: sliderText,
+    pinBox: pinBoxText,
+    czAllowance: '—',
+    czTape: '—',
+    czTop: '—',
+    czBottom: '—',
+    czResin: '—',
+    czTollilon1: '—',
+    czTollilon2: '—',
+    czUTop: '—',
+    mzTape: '—',
+    mzTeeth: '—',
+    mzTop: '—',
+    mzHBottom: '—',
+    wireAllowance: '—',
+    wireDiv: '—',
+    wire3Inch: '—',
+    wire3Cm: '—',
+    pzAllowance: '—',
+    pzTape: '—',
+    pzResin: '—'
+  };
+
+  if (calc) {
+    if (cat === 'cz') {
+      const chainVal = calc.baseChainConsumptionMtr !== undefined ? calc.baseChainConsumptionMtr : (calc.chainConsumptionMtr || 0);
+      previews.czAllowance = `Base Chain: ${chainVal.toFixed(2)} Mtr`;
+      previews.czTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
+      previews.czTop = `Top Stop: ${(calc.topStopKg || 0).toFixed(2)} KG`;
+      previews.czBottom = `Bottom Stop: ${(calc.bottomStopKg || 0).toFixed(2)} KG`;
+      previews.czResin = `Resin: ${(calc.resinKg || 0).toFixed(2)} KG`;
+      previews.czTollilon1 = `Tollilon #1: ${(calc.tollilonOne || 0).toFixed(2)} U`;
+      previews.czTollilon2 = `Tollilon #2: ${(calc.tollilonTwo || 0).toFixed(2)} U (${Math.round(calc.totalTollilon || 0)} Total)`;
+      const uTopVal = calc.uTopQty !== undefined ? calc.uTopQty : (calc.uTopPcs || 0);
+      previews.czUTop = `U-Top: ${Math.round(uTopVal).toLocaleString('en-US')} Pcs`;
+    } else if (cat === 'mz') {
+      previews.mzTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
+      previews.mzTeeth = `Teeth Wire: ${(calc.teethWireKg || 0).toFixed(2)} KG`;
+      previews.mzTop = `Top Stop: ${(calc.topStopKg || 0).toFixed(2)} KG`;
+      const hBottomRow = processedRows.find(r => r.component === 'H-BOTTOM');
+      const hBottomQty = hBottomRow ? hBottomRow.totalQuantity : (calc.hBottomQuantity || 0);
+      const hasMz3 = groupVariants.some(v => String(v.zipperSize || '').includes('3'));
+      previews.mzHBottom = hasMz3 ? `H-Bottom: ${Math.round(hBottomQty).toLocaleString('en-US')} Pcs` : `— (MZ#3 only)`;
+    } else if (cat === 'wire') {
+      const wireMtr = calc.totalReqMtr || 0;
+      previews.wireAllowance = `Req. Chain: ${wireMtr.toFixed(2)} Mtr`;
+      previews.wireDiv = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
+      previews.wire3Inch = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
+      previews.wire3Cm = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
+    } else if (cat === 'pz') {
+      const chainVal = calc.baseChainConsumptionMtr !== undefined ? calc.baseChainConsumptionMtr : (calc.chainConsumptionMtr || 0);
+      previews.pzAllowance = `Base Chain: ${chainVal.toFixed(2)} Mtr`;
+      previews.pzTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
+      previews.pzResin = `Tape Wise: ${(calc.tapeResinKg || 0).toFixed(2)} KG`;
+    }
+  }
+
+  return previews;
+}
+
+/**
+ * Update all At-a-Glance BOM Parameter Previews across rendered category groups without DOM re-render
+ */
+function updateCategoryParameterPreviews() {
+  const groups = (appState.currentEstimate && Array.isArray(appState.currentEstimate.categoryGroups))
+    ? appState.currentEstimate.categoryGroups
+    : [];
+
+  groups.forEach(group => {
+    const previews = getCategoryParamPreviewData(group);
+    
+    const updateEl = (id, text, isMuted = false) => {
+      const el = document.getElementById(id);
+      if (el) {
+        const textSpan = el.querySelector('.preview-text');
+        const badge = el.querySelector('.preview-badge');
+        if (textSpan) {
+          textSpan.textContent = text;
+        } else {
+          el.innerHTML = `<span class="preview-badge ${isMuted ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(text)}</span></span>`;
+        }
+        if (badge) {
+          if (isMuted) {
+            badge.classList.add('preview-muted');
+          } else {
+            badge.classList.remove('preview-muted');
+          }
+        }
+      }
+    };
+
+    updateEl(`preview-slider-${group.id}`, previews.slider);
+    updateEl(`preview-pin-box-${group.id}`, previews.pinBox, previews.pinBox.includes('Closed End') || previews.pinBox === '—');
+    
+    // CZ
+    updateEl(`preview-cz-allowance-${group.id}`, previews.czAllowance);
+    updateEl(`preview-cz-tape-${group.id}`, previews.czTape);
+    updateEl(`preview-cz-top-${group.id}`, previews.czTop);
+    updateEl(`preview-cz-bottom-${group.id}`, previews.czBottom);
+    updateEl(`preview-cz-resin-${group.id}`, previews.czResin);
+    updateEl(`preview-cz-tollilon1-${group.id}`, previews.czTollilon1);
+    updateEl(`preview-cz-tollilon2-${group.id}`, previews.czTollilon2);
+    updateEl(`preview-cz-utop-${group.id}`, previews.czUTop);
+
+    // MZ
+    updateEl(`preview-mz-tape-${group.id}`, previews.mzTape);
+    updateEl(`preview-mz-teeth-${group.id}`, previews.mzTeeth);
+    updateEl(`preview-mz-top-${group.id}`, previews.mzTop);
+    updateEl(`preview-mz-hbottom-${group.id}`, previews.mzHBottom, previews.mzHBottom.includes('MZ#3 only'));
+
+    // WIRE
+    updateEl(`preview-wire-allowance-${group.id}`, previews.wireAllowance);
+    updateEl(`preview-wire-div-${group.id}`, previews.wireDiv);
+    updateEl(`preview-wire-inch-${group.id}`, previews.wire3Inch);
+    updateEl(`preview-wire-cm-${group.id}`, previews.wire3Cm);
+
+    // PZ
+    updateEl(`preview-pz-allowance-${group.id}`, previews.pzAllowance);
+    updateEl(`preview-pz-tape-${group.id}`, previews.pzTape);
+    updateEl(`preview-pz-resin-${group.id}`, previews.pzResin);
+  });
+}
+
+/**
  * Build HTML for a single Category Group card
  * @param {Object} group 
  * @param {number} gIdx 
@@ -421,14 +874,27 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   const isLossApplicable = (cat === 'cz' || cat === 'mz' || cat === 'wire' || cat === 'pz');
   const isZipperCategory = (cat === 'cz' || cat === 'mz' || cat === 'pz');
 
+  const previews = getCategoryParamPreviewData(group);
+
+  // MZ multi-variant detection
+  const mzVariants = group.variants || [];
+  const hasMz5 = mzVariants.some(v => String(v.zipperSize || '').includes('5'));
+  const hasMz3 = mzVariants.some(v => String(v.zipperSize || '').includes('3'));
+  const primaryMzSize = (hasMz5 && !hasMz3) ? '#5' : (hasMz3 && !hasMz5 ? '#3' : ((mzVariants.length > 0 && mzVariants[0].zipperSize && mzVariants[0].zipperSize.includes('5')) ? '#5' : '#3'));
+  const mzSizeTitle = (hasMz5 && hasMz3) ? 'MZ#5 & MZ#3' : (hasMz3 && !hasMz5 ? 'MZ#3' : 'MZ#5');
   const mzParams = (group.mzParams && typeof group.mzParams === 'object') ? group.mzParams : {};
-  const primaryMzSize = (group.variants && group.variants.length > 0 && group.variants[0].zipperSize && group.variants[0].zipperSize.includes('5')) ? '#5' : '#3';
   const defaultMzTapeDivisor = primaryMzSize === '#5' ? 71 : 97;
   const defaultTopStopFactor = primaryMzSize === '#5' ? 0.32 : 0.22;
+  const isHBottomApplicable = (mzVariants.length > 0) ? hasMz3 : (primaryMzSize !== '#5');
 
+  // CZ multi-variant detection
   const czParams = (group.czParams && typeof group.czParams === 'object') ? group.czParams : {};
-  const primaryCzSize = (group.variants && group.variants.length > 0 && group.variants[0].zipperSize && group.variants[0].zipperSize.includes('5')) ? '#5' : '#3';
-  const primaryUnit = (group.variants && group.variants.length > 0 && group.variants[0].lengthUnit === 'cm') ? 'cm' : 'inch';
+  const czVariants = group.variants || [];
+  const hasCz5 = czVariants.some(v => String(v.zipperSize || '').includes('5'));
+  const hasCz3 = czVariants.some(v => String(v.zipperSize || '').includes('3'));
+  const primaryCzSize = (hasCz5 && !hasCz3) ? '#5' : (hasCz3 && !hasCz5 ? '#3' : ((czVariants.length > 0 && czVariants[0].zipperSize && czVariants[0].zipperSize.includes('5')) ? '#5' : '#3'));
+  const czSizeTitle = (hasCz5 && hasCz3) ? 'CZ#5 & CZ#3' : (hasCz3 && !hasCz5 ? 'CZ#3' : 'CZ#5');
+  const primaryUnit = (czVariants.length > 0 && czVariants[0].lengthUnit === 'cm') ? 'cm' : 'inch';
   const defaultCzAllowance = primaryCzSize === '#5' 
     ? (primaryUnit === 'cm' ? 4.5 : 1.78) 
     : (primaryUnit === 'cm' ? 4.0 : 1.58);
@@ -436,25 +902,47 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   const defaultCzTopStopFactor = primaryCzSize === '#5' ? 0.04 : 0.02;
   const defaultCzBottomStopFactor = primaryCzSize === '#5' ? 0.04 : 0.03;
   const defaultCzResinDivisor = primaryCzSize === '#5' ? 900 : 1000;
-  const defaultCzUTopFactor = 0.074;
   const defaultCzTollilon1Divisor = primaryCzSize === '#5' ? 7700 : 14400;
   const defaultCzTollilon2Divisor = primaryCzSize === '#5' ? 8600 : 9500;
 
+  // WIRE multi-variant detection
   const wireParams = (group.wireParams && typeof group.wireParams === 'object') ? group.wireParams : {};
-  const firstVariant = (group.variants && group.variants.length > 0) ? group.variants[0] : null;
+  const wireVariants = group.variants || [];
+  const hasWireLong = wireVariants.some(v => String(v.zipperSize || '').includes('long'));
+  const hasWireNormal = wireVariants.some(v => String(v.zipperSize || '').includes('normal') || (!String(v.zipperSize || '').includes('long') && !String(v.zipperSize || '').includes('3')));
+  const hasWire3 = wireVariants.some(v => String(v.zipperSize || '').includes('3'));
+
+  const firstVariant = wireVariants[0] || null;
   const primaryWireType = firstVariant 
     ? (firstVariant.zipperSize && firstVariant.zipperSize.includes('3') ? '#3' : (firstVariant.zipperSize && firstVariant.zipperSize.includes('long') ? '#5_long' : '#5_normal'))
     : '#5_normal';
   const primaryWireUnit = (firstVariant && firstVariant.lengthUnit === 'cm') ? 'cm' : 'inch';
-  const defaultWireAllowance = primaryWireType === '#5_long'
-    ? (primaryWireUnit === 'cm' ? 5.0 : 1.97)
-    : 0;
+  const defaultWireAllowance = 1.97;
   const defaultWireDivisor = 20.6;
   const defaultWire3InchDivisor = 32.0;
   const defaultWire3CmDivisor = 27.73;
 
+  let wireTitle = 'WIRE#5 Normal Teeth';
+  if (hasWire3 && (hasWireLong || hasWireNormal)) {
+    wireTitle = 'WIRE#3 & WIRE#5';
+  } else if (hasWireLong && hasWireNormal) {
+    wireTitle = 'WIRE#5 Normal & Long Teeth';
+  } else if (hasWire3) {
+    wireTitle = 'WIRE#3';
+  } else if (hasWireLong) {
+    wireTitle = 'WIRE#5 Long Teeth';
+  } else if (primaryWireType === '#3') {
+    wireTitle = 'WIRE#3';
+  } else if (primaryWireType === '#5_long') {
+    wireTitle = 'WIRE#5 Long Teeth';
+  }
+
+  // PZ multi-variant detection
   const pzParams = (group.pzParams && typeof group.pzParams === 'object') ? group.pzParams : {};
-  const primaryPzVariant = (group.variants && group.variants.length > 0) ? group.variants[0] : null;
+  const pzVariants = group.variants || [];
+  const primaryPzVariant = pzVariants[0] || null;
+  const hasPz8 = pzVariants.some(v => String(v.zipperSize || '').includes('8'));
+  const hasPz3 = pzVariants.some(v => String(v.zipperSize || '').includes('3'));
   const primaryPzSize = (primaryPzVariant && primaryPzVariant.zipperSize && primaryPzVariant.zipperSize.includes('8')) ? '#8' 
     : ((primaryPzVariant && primaryPzVariant.zipperSize && primaryPzVariant.zipperSize.includes('3')) ? '#3' : '#5');
   const primaryPzUnit = (primaryPzVariant && primaryPzVariant.lengthUnit === 'cm') ? 'cm' : 'inch';
@@ -472,6 +960,59 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   else if (cat === 'mz') { catBadge = 'MZ (Metal)'; catBadgeClass = 'badge-success'; }
   else if (cat === 'wire') { catBadge = 'WIRE (Metal Wire)'; catBadgeClass = 'badge-warning'; }
   else if (cat === 'pz') { catBadge = 'PZ (Plastic)'; catBadgeClass = 'badge-primary'; }
+
+  // Dynamic Slider & Pin Box Loss Percentages for this category group
+  const groupVariants = group.variants || [];
+  const groupTotalZipperQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  const relevantPinBoxQty = (window.CalculatorEngine && window.CalculatorEngine.getRelevantPinBoxQuantity)
+    ? window.CalculatorEngine.getRelevantPinBoxQuantity(groupVariants)
+    : 0;
+  const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupTotalZipperQty;
+
+  const getSliderDefault = (window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage))
+    ? (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage)
+    : null;
+  const defaultSliderAdd = getSliderDefault ? getSliderDefault(groupTotalZipperQty) : 8.0;
+
+  const currentSliderVal = (group.sliderAdditionPercent !== undefined && group.sliderAdditionPercent !== null)
+    ? group.sliderAdditionPercent
+    : (group.sliderAddPercent !== undefined && group.sliderAddPercent !== null ? group.sliderAddPercent : null);
+
+  let effectiveSliderLoss = defaultSliderAdd;
+  if (group.isSliderOverridden && currentSliderVal !== null) {
+    effectiveSliderLoss = Number(currentSliderVal);
+  } else {
+    group.sliderAdditionPercent = defaultSliderAdd;
+    group.sliderAddPercent = defaultSliderAdd;
+    effectiveSliderLoss = defaultSliderAdd;
+  }
+
+  const defaultPinBoxLoss = (window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
+    ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty)
+    : 4.0;
+  const effectivePinBoxLoss = (group.isPinBoxLossOverridden && group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null)
+    ? group.pinBoxLossPercent
+    : (group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null
+      ? group.pinBoxLossPercent
+      : defaultPinBoxLoss);
+
+  const mz3Variants = mzVariants.filter(v => {
+    const sz = String((v && v.zipperSize) || '').trim();
+    return sz.includes('3');
+  });
+
+  const mz3ZipperQty = mz3Variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  const defaultHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
+    ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3ZipperQty)
+    : 4.0;
+  const currentHBottomParam = (group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
+    ? group.mzParams.hBottomLossPercent
+    : group.hBottomLossPercent;
+  const effectiveHBottomLoss = (group.isHBottomLossOverridden && currentHBottomParam !== undefined && currentHBottomParam !== null)
+    ? currentHBottomParam
+    : (currentHBottomParam !== undefined && currentHBottomParam !== null && currentHBottomParam !== 2.5
+      ? currentHBottomParam
+      : defaultHBottomLoss);
 
   return `
     <div class="category-group-header">
@@ -521,23 +1062,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
             </select>
           </div>
 
-          <!-- 2. Loss Percentage Field -->
-          ${isLossApplicable ? `
-            <div class="category-control-item category-control-loss">
-              <label class="category-control-label" for="input-loss-${group.id}" title="Factory Loss Allowance Percentage">
-                Loss Percentage
-              </label>
-              <div class="input-with-addon category-addon-wrapper">
-                <input type="number" id="input-loss-${group.id}" class="form-input font-mono input-group-loss category-styled-input" 
-                  data-group-id="${group.id}"
-                  value="${group.lossPercent !== undefined ? group.lossPercent : 3.0}" 
-                  min="0" max="100" step="0.5">
-                <span class="input-addon input-addon-right category-addon-badge">%</span>
-              </div>
-            </div>
-          ` : ''}
-
-          <!-- 3. Slider Add Percentage Field (Zipper categories only) -->
+          <!-- 2. Slider Add Percentage Field (Zipper categories only) -->
           ${isZipperCategory ? `
             <div class="category-control-item category-control-slider">
               <label class="category-control-label" for="input-slider-${group.id}" title="Slider Addition Allowance Percentage">
@@ -546,9 +1071,29 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
               <div class="input-with-addon category-addon-wrapper">
                 <input type="number" id="input-slider-${group.id}" class="form-input font-mono input-group-slider-add category-styled-input" 
                   data-group-id="${group.id}"
-                  value="${group.sliderAdditionPercent !== undefined ? group.sliderAdditionPercent : 1.5}" 
+                  value="${effectiveSliderLoss}" 
                   min="0" max="100" step="0.1">
                 <span class="input-addon input-addon-right category-addon-badge">%</span>
+              </div>
+              <div class="param-calc-preview" id="preview-slider-${group.id}">
+                <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.slider)}</span></span>
+              </div>
+            </div>
+
+            <!-- 3. Pin Box Loss Percentage Field (Zipper categories only) -->
+            <div class="category-control-item category-control-pin-box">
+              <label class="category-control-label" for="input-pin-box-${group.id}" title="Pin Box Loss Allowance Percentage">
+                Pin Box Loss %
+              </label>
+              <div class="input-with-addon category-addon-wrapper">
+                <input type="number" id="input-pin-box-${group.id}" class="form-input font-mono input-group-pin-box category-styled-input" 
+                  data-group-id="${group.id}"
+                  value="${effectivePinBoxLoss}" 
+                  min="0" max="100" step="0.1">
+                <span class="input-addon input-addon-right category-addon-badge">%</span>
+              </div>
+              <div class="param-calc-preview" id="preview-pin-box-${group.id}">
+                <span class="preview-badge ${previews.pinBox.includes('Closed End') || previews.pinBox === '—' ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pinBox)}</span></span>
               </div>
             </div>
           ` : ''}
@@ -563,7 +1108,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                CZ Production Parameters (${primaryCzSize === '#5' ? 'CZ#5' : 'CZ#3'})
+                CZ Production Parameters (${czSizeTitle})
               </span>
               <span class="category-dynamic-params-hint">Factory calculation constants for Nylon Zipper</span>
             </div>
@@ -583,6 +1128,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="0" max="100" step="0.01">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">${primaryUnit === 'cm' ? 'CM' : 'Inch'}</span>
                 </div>
+                <div class="param-calc-preview" id="preview-cz-allowance-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czAllowance)}</span></span>
+                </div>
               </div>
 
               <!-- 2. Tape Divisor -->
@@ -599,6 +1147,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="1" max="500" step="0.1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">Mtr/KG</span>
                 </div>
+                <div class="param-calc-preview" id="preview-cz-tape-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czTape)}</span></span>
+                </div>
               </div>
 
               <!-- 3. Top Stop Factor -->
@@ -612,6 +1163,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="topStopFactor" 
                        value="${czParams.topStopFactor !== undefined ? czParams.topStopFactor : defaultCzTopStopFactor}" 
                        min="0" max="5.0" step="0.001">
+                <div class="param-calc-preview" id="preview-cz-top-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czTop)}</span></span>
+                </div>
               </div>
 
               <!-- 4. Bottom Stop Factor -->
@@ -625,6 +1179,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="bottomStopFactor" 
                        value="${czParams.bottomStopFactor !== undefined ? czParams.bottomStopFactor : defaultCzBottomStopFactor}" 
                        min="0" max="5.0" step="0.001">
+                <div class="param-calc-preview" id="preview-cz-bottom-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czBottom)}</span></span>
+                </div>
               </div>
 
               <!-- 5. Resin Divisor -->
@@ -641,24 +1198,12 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="1" max="100000" step="1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">Pcs/KG</span>
                 </div>
+                <div class="param-calc-preview" id="preview-cz-resin-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czResin)}</span></span>
+                </div>
               </div>
 
-              ${primaryCzSize === '#5' ? `
-                <!-- 6. Ultrasonic U-Top Factor (ONLY FOR CZ#5) -->
-                <div class="category-dynamic-param-item">
-                  <label class="category-control-label" for="cz-utop-factor-${group.id}" title="Ultrasonic U-Top Wire Factor (Divided by 1000)">
-                    U-Top Factor
-                  </label>
-                  <input type="number" id="cz-utop-factor-${group.id}" 
-                         class="form-input font-mono category-styled-input input-cz-param" 
-                         data-group-id="${group.id}" 
-                         data-param="uTopFactor" 
-                         value="${czParams.uTopFactor !== undefined ? czParams.uTopFactor : defaultCzUTopFactor}" 
-                         min="0" max="5.0" step="0.001">
-                </div>
-              ` : ''}
-
-              <!-- 7. Tollilon Divisor 1 -->
+              <!-- 6. Tollilon Divisor 1 (ROW 2 Item 1) -->
               <div class="category-dynamic-param-item">
                 <label class="category-control-label" for="cz-tollilon1-div-${group.id}" title="Tollilon Flat Wire Component #1 Divisor">
                   Tollilon Divisor 1
@@ -669,9 +1214,12 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="tollilon1Divisor" 
                        value="${czParams.tollilon1Divisor !== undefined ? czParams.tollilon1Divisor : defaultCzTollilon1Divisor}" 
                        min="1" max="100000" step="1">
+                <div class="param-calc-preview" id="preview-cz-tollilon1-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czTollilon1)}</span></span>
+                </div>
               </div>
 
-              <!-- 8. Tollilon Divisor 2 -->
+              <!-- 7. Tollilon Divisor 2 (ROW 2 Item 2) -->
               <div class="category-dynamic-param-item">
                 <label class="category-control-label" for="cz-tollilon2-div-${group.id}" title="Tollilon Flat Wire Component #2 Divisor">
                   Tollilon Divisor 2
@@ -682,7 +1230,31 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="tollilon2Divisor" 
                        value="${czParams.tollilon2Divisor !== undefined ? czParams.tollilon2Divisor : defaultCzTollilon2Divisor}" 
                        min="1" max="100000" step="1">
+                <div class="param-calc-preview" id="preview-cz-tollilon2-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czTollilon2)}</span></span>
+                </div>
               </div>
+
+              ${(primaryCzSize === '#5' || hasCz5) ? `
+                <!-- 8. Special U-Top Requirement (ROW 2 Item 3, spanning columns 3 to 5) -->
+                <div class="category-dynamic-param-item category-dynamic-param-utop-card">
+                  <label class="category-control-label" for="cz-utop-special-${group.id}" title="When checked, customer requires 1 U-Top per zipper instead of standard 2 pcs">
+                    U-Top Requirement (CZ#5)
+                  </label>
+                  <div class="utop-checkbox-inner-card">
+                    <label class="flex items-center gap-2" style="cursor: pointer; margin: 0; width: 100%;">
+                      <input type="checkbox" id="cz-utop-special-${group.id}" 
+                             class="input-cz-utop-special rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                             data-group-id="${group.id}" 
+                             ${Boolean(group.isSpecialUTopOrder || (czParams && czParams.isSpecialUTopOrder)) ? 'checked' : ''}>
+                      <span class="text-xs text-slate-700 font-semibold">Special U-Top Requirement (1 pc per zipper)</span>
+                    </label>
+                  </div>
+                  <div class="param-calc-preview" id="preview-cz-utop-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czUTop)}</span></span>
+                  </div>
+                </div>
+              ` : ''}
             </div>
           </div>
         ` : ''}
@@ -696,7 +1268,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                MZ Production Parameters (${primaryMzSize === '#5' ? 'MZ#5' : 'MZ#3'})
+                MZ Production Parameters (${mzSizeTitle})
               </span>
               <span class="category-dynamic-params-hint">Factory calculation constants for Metal Zipper</span>
             </div>
@@ -716,6 +1288,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="1" max="500" step="1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">Mtr/KG</span>
                 </div>
+                <div class="param-calc-preview" id="preview-mz-tape-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzTape)}</span></span>
+                </div>
               </div>
 
               <!-- 2. Teeth Wire Divisor -->
@@ -729,6 +1304,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="teethWireDivisor" 
                        value="${mzParams.teethWireDivisor !== undefined ? mzParams.teethWireDivisor : 32}" 
                        min="1" max="200" step="1">
+                <div class="param-calc-preview" id="preview-mz-teeth-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzTeeth)}</span></span>
+                </div>
               </div>
 
               <!-- 3. Teeth Wire Loss Factor -->
@@ -755,6 +1333,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="topStopFactor" 
                        value="${mzParams.topStopFactor !== undefined ? mzParams.topStopFactor : defaultTopStopFactor}" 
                        min="0.01" max="5.0" step="0.01">
+                <div class="param-calc-preview" id="preview-mz-top-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzTop)}</span></span>
+                </div>
               </div>
 
               <!-- 5. Top Stop Divisor -->
@@ -771,18 +1352,25 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
               </div>
 
               <!-- 6. H-Bottom Stop Loss Addition -->
-              <div class="category-dynamic-param-item">
-                <label class="category-control-label" for="mz-hbottom-loss-${group.id}">
+              <div class="category-dynamic-param-item ${!isHBottomApplicable ? 'param-inactive' : ''}">
+                <label class="category-control-label" for="mz-hbottom-loss-${group.id}" title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ#3' : 'H-Bottom Stop is applicable to MZ#3 only (inactive for MZ#5)'}">
                   H-Bottom Loss %
+                  ${!isHBottomApplicable ? '<span class="text-3xs text-slate-400 font-normal ml-1">(MZ#3 only)</span>' : ''}
                 </label>
                 <div class="input-with-addon category-addon-wrapper">
                   <input type="number" id="mz-hbottom-loss-${group.id}" 
-                         class="form-input font-mono category-styled-input input-mz-param" 
+                         class="form-input font-mono category-styled-input input-mz-param input-group-hbottom-loss" 
                          data-group-id="${group.id}" 
                          data-param="hBottomLossPercent" 
-                         value="${mzParams.hBottomLossPercent !== undefined ? mzParams.hBottomLossPercent : 2.5}" 
+                         value="${isHBottomApplicable ? effectiveHBottomLoss : ''}" 
+                         placeholder="${isHBottomApplicable ? '0' : '—'}"
+                         ${!isHBottomApplicable ? 'disabled' : ''}
+                         title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ#3' : 'H-Bottom Stop is applicable to MZ#3 only (inactive for MZ#5)'}"
                          min="0" max="100" step="0.1">
-                  <span class="input-addon input-addon-right category-addon-badge text-xs">%</span>
+                  <span class="input-addon input-addon-right category-addon-badge text-xs ${!isHBottomApplicable ? 'opacity-60 text-slate-400' : ''}">%</span>
+                </div>
+                <div class="param-calc-preview" id="preview-mz-hbottom-${group.id}">
+                  <span class="preview-badge ${!isHBottomApplicable ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzHBottom)}</span></span>
                 </div>
               </div>
             </div>
@@ -798,13 +1386,13 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                WIRE Production Parameters (${primaryWireType === '#3' ? 'WIRE#3' : (primaryWireType === '#5_long' ? 'WIRE#5 Long Teeth' : 'WIRE#5 Normal Teeth')})
+                WIRE Production Parameters (${wireTitle})
               </span>
               <span class="category-dynamic-params-hint">Factory calculation constants for Brass / Metal Wire</span>
             </div>
 
             <div class="category-dynamic-params-grid">
-              ${primaryWireType === '#3' ? `
+              ${(hasWire3 || primaryWireType === '#3') ? `
                 <!-- 1. Inch Wire Divisor -->
                 <div class="category-dynamic-param-item">
                   <label class="category-control-label" for="wire-inch-div-${group.id}" title="Wire weight calculation divisor for Inch length entries">
@@ -816,6 +1404,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          data-param="inchWireDivisor" 
                          value="${wireParams.inchWireDivisor !== undefined ? wireParams.inchWireDivisor : defaultWire3InchDivisor}" 
                          min="1" max="500" step="0.01">
+                  <div class="param-calc-preview" id="preview-wire-inch-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.wire3Inch)}</span></span>
+                  </div>
                 </div>
 
                 <!-- 2. CM Wire Divisor -->
@@ -829,26 +1420,14 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          data-param="cmWireDivisor" 
                          value="${wireParams.cmWireDivisor !== undefined ? wireParams.cmWireDivisor : defaultWire3CmDivisor}" 
                          min="1" max="500" step="0.01">
+                  <div class="param-calc-preview" id="preview-wire-cm-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.wire3Cm)}</span></span>
+                  </div>
                 </div>
               ` : ''}
 
-              ${primaryWireType === '#5_normal' ? `
-                <!-- 1. Wire Divisor -->
-                <div class="category-dynamic-param-item">
-                  <label class="category-control-label" for="wire-div-${group.id}" title="Wire weight calculation divisor for Normal Teeth #5">
-                    Wire Divisor
-                  </label>
-                  <input type="number" id="wire-div-${group.id}" 
-                         class="form-input font-mono category-styled-input input-wire-param" 
-                         data-group-id="${group.id}" 
-                         data-param="wireDivisor" 
-                         value="${wireParams.wireDivisor !== undefined ? wireParams.wireDivisor : defaultWireDivisor}" 
-                         min="1" max="500" step="0.1">
-                </div>
-              ` : ''}
-
-              ${primaryWireType === '#5_long' ? `
-                <!-- 1. Wire Allowance -->
+              ${hasWireLong ? `
+                <!-- Wire Allowance (Long Teeth #5) -->
                 <div class="category-dynamic-param-item">
                   <label class="category-control-label" for="wire-allowance-${group.id}" title="Production allowance added to length for Long Teeth #5 wire">
                     Wire Allowance
@@ -862,11 +1441,16 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                            min="0" max="100" step="0.01">
                     <span class="input-addon input-addon-right category-addon-badge text-xs">${primaryWireUnit === 'cm' ? 'CM' : 'Inch'}</span>
                   </div>
+                  <div class="param-calc-preview" id="preview-wire-allowance-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.wireAllowance)}</span></span>
+                  </div>
                 </div>
+              ` : ''}
 
-                <!-- 2. Wire Divisor -->
+              ${(hasWireNormal || hasWireLong || (primaryWireType !== '#3' && !hasWire3)) ? `
+                <!-- Wire Divisor -->
                 <div class="category-dynamic-param-item">
-                  <label class="category-control-label" for="wire-div-${group.id}" title="Wire weight calculation divisor for Long Teeth #5">
+                  <label class="category-control-label" for="wire-div-${group.id}" title="Wire weight calculation divisor for Normal/Long Teeth #5">
                     Wire Divisor
                   </label>
                   <input type="number" id="wire-div-${group.id}" 
@@ -875,6 +1459,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          data-param="wireDivisor" 
                          value="${wireParams.wireDivisor !== undefined ? wireParams.wireDivisor : defaultWireDivisor}" 
                          min="1" max="500" step="0.1">
+                  <div class="param-calc-preview" id="preview-wire-div-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.wireDiv)}</span></span>
+                  </div>
                 </div>
               ` : ''}
             </div>
@@ -910,6 +1497,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="0" max="100" step="0.01">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">${primaryPzUnit === 'cm' ? 'CM' : 'Inch'}</span>
                 </div>
+                <div class="param-calc-preview" id="preview-pz-allowance-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzAllowance)}</span></span>
+                </div>
               </div>
 
               <!-- 2. Tape Divisor -->
@@ -925,6 +1515,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          value="${pzParams.tapeDivisor !== undefined ? pzParams.tapeDivisor : defaultPzTapeDivisor}" 
                          min="1" max="500" step="1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">Mtr/KG</span>
+                </div>
+                <div class="param-calc-preview" id="preview-pz-tape-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzTape)}</span></span>
                 </div>
               </div>
 
@@ -955,6 +1548,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="tapeFactor" 
                        value="${pzParams.tapeFactor !== undefined ? pzParams.tapeFactor : defaultPzTapeFactor}" 
                        min="0" max="100" step="0.01">
+                <div class="param-calc-preview" id="preview-pz-resin-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzResin)}</span></span>
+                </div>
               </div>
             </div>
           </div>
@@ -1032,6 +1628,42 @@ function buildVariantCardHTML(v, vIdx, group) {
   const unit = v.lengthUnit || 'inch';
   const type = v.zipperType || 'closed_end';
 
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  let classKey = '';
+  let cInfo = null;
+  let isEligible = false;
+  let lossDisplayVal = '';
+  let consumptionDisplay = '0';
+  let isOverridden = false;
+  let varMtr = 0;
+  let isShared = false;
+  let sharedCount = 1;
+
+  if (calcEng && calcEng.getVariantZipperClass && calcEng.consolidateGroupClasses) {
+    classKey = calcEng.getVariantZipperClass(v, cat);
+    isEligible = calcEng.isClassEligibleForDynamicLoss ? calcEng.isClassEligibleForDynamicLoss(classKey) : false;
+    
+    const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+    const consolidation = calcEng.consolidateGroupClasses(group.variants, cat, groupParams, group.classLossOverrides);
+    cInfo = consolidation[classKey] || null;
+
+    if (calcEng.calculateVariantBaseChainMtr) {
+      varMtr = calcEng.calculateVariantBaseChainMtr(v, cat, groupParams) || 0;
+    }
+
+    if (cInfo) {
+      sharedCount = cInfo.variantCount || (cInfo.variants && cInfo.variants.length) || 1;
+      isShared = sharedCount > 1;
+      isOverridden = Boolean(cInfo.isOverridden);
+      if (isOverridden && cInfo.overrideVal !== null) {
+        lossDisplayVal = cInfo.overrideVal;
+      } else if (isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+        lossDisplayVal = cInfo.defaultLossPercent;
+      }
+      consumptionDisplay = Math.round(cInfo.baseChainMtr || 0).toLocaleString('en-US');
+    }
+  }
+
   return `
     <div class="variant-card" id="variant-card-${v.id}">
       <div class="variant-card-header">
@@ -1059,7 +1691,7 @@ function buildVariantCardHTML(v, vIdx, group) {
       </div>
 
       <div class="variant-card-body">
-        <div class="form-grid-4">
+        <div class="form-grid-5">
           <!-- Size / Type Selection -->
           <div class="form-group mb-0">
             <label class="form-label text-xs font-semibold mb-1">
@@ -1075,22 +1707,22 @@ function buildVariantCardHTML(v, vIdx, group) {
             <label class="form-label text-xs font-semibold mb-1">
               Finished Length <span class="text-rose-500">*</span>
             </label>
-            <div class="flex items-center gap-1">
+            <div class="input-with-addon-right">
               <input type="number" class="form-input form-input-sm font-mono input-var-length" 
                 data-group-id="${group.id}" 
                 data-var-id="${v.id}" 
-                placeholder="e.g. 8.00" 
-                min="0.1" step="0.25"
-                value="${v.length !== undefined && v.length !== null ? v.length : ''}">
-              
-              <select class="form-select form-select-sm input-var-unit" style="width: 75px;" data-group-id="${group.id}" data-var-id="${v.id}">
+                value="${v.length !== undefined && v.length !== null ? v.length : 0}" 
+                step="any" min="0" placeholder="0">
+              <select class="form-select form-select-sm input-addon-select input-var-unit" 
+                data-group-id="${group.id}" 
+                data-var-id="${v.id}">
                 <option value="inch" ${unit === 'inch' ? 'selected' : ''}>Inch</option>
-                <option value="cm" ${unit === 'cm' ? 'selected' : ''}>CM</option>
+                <option value="cm" ${unit === 'cm' ? 'selected' : ''}>cm</option>
               </select>
             </div>
           </div>
 
-          <!-- Order Quantity -->
+          <!-- Quantity -->
           <div class="form-group mb-0">
             <label class="form-label text-xs font-semibold mb-1">
               Order Quantity <span class="text-rose-500">*</span>
@@ -1099,18 +1731,21 @@ function buildVariantCardHTML(v, vIdx, group) {
               <input type="number" class="form-input form-input-sm font-mono input-var-qty" 
                 data-group-id="${group.id}" 
                 data-var-id="${v.id}" 
-                placeholder="e.g. 5000" 
-                min="1" step="1"
-                value="${v.quantity !== undefined && v.quantity !== null ? v.quantity : ''}">
+                value="${v.quantity !== undefined && v.quantity !== null ? v.quantity : 0}" 
+                min="0" step="1" placeholder="0">
               <span class="input-addon input-addon-right text-xs">pcs</span>
             </div>
           </div>
 
-          <!-- Zipper Type / Application (For CZ & MZ) -->
+          <!-- Zipper Type / Wire Note -->
           ${cat !== 'wire' ? `
             <div class="form-group mb-0">
-              <label class="form-label text-xs font-semibold mb-1">Zipper Type</label>
-              <select class="form-select form-select-sm input-var-type" data-group-id="${group.id}" data-var-id="${v.id}">
+              <label class="form-label text-xs font-semibold mb-1">
+                Zipper Type <span class="text-rose-500">*</span>
+              </label>
+              <select class="form-select form-select-sm input-var-type" 
+                data-group-id="${group.id}" 
+                data-var-id="${v.id}">
                 <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
                 <option value="open_end" ${type === 'open_end' ? 'selected' : ''}>Open End</option>
                 <option value="two_way" ${type === 'two_way' ? 'selected' : ''}>Two-Way Open</option>
@@ -1128,6 +1763,48 @@ function buildVariantCardHTML(v, vIdx, group) {
                 value="${escapeHtml(v.color || '')}">
             </div>
           `}
+
+          <!-- Dynamic Loss Percentage Field (Inside Variant Card) -->
+          <div class="form-group mb-0 variant-loss-col" id="var-loss-col-${v.id}">
+            <label class="form-label text-xs font-semibold mb-1 flex items-center justify-between" for="input-var-loss-${v.id}">
+              <span>Loss %</span>
+              <span class="badge ${isEligible ? (isShared ? 'badge-primary is-shared' : 'badge-primary') : 'badge-secondary'} text-3xs font-bold font-mono var-class-badge" 
+                    title="${classKey ? (isShared ? `Class ${classKey} is shared across ${sharedCount} variants in this group. Total chain required determines the factory loss % bracket.` : `Zipper Class: ${classKey}`) : '—'}">
+                ${escapeHtml(classKey || '—')}
+              </span>
+            </label>
+            <div class="input-with-addon">
+              <input type="number" 
+                     id="input-var-loss-${v.id}" 
+                     class="form-input form-input-sm font-mono input-var-loss" 
+                     data-group-id="${group.id}" 
+                     data-var-id="${v.id}" 
+                     data-class="${escapeHtml(classKey)}"
+                     value="${lossDisplayVal !== '' ? lossDisplayVal : ''}" 
+                     placeholder="${isEligible ? '0' : '—'}"
+                     min="0" max="100" step="0.5"
+                     title="${isShared ? `Combined ${classKey} total: ${consumptionDisplay} Mtr across ${sharedCount} variants.` : (isEligible ? `${classKey} total: ${consumptionDisplay} Mtr` : '')}">
+              <span class="input-addon input-addon-right text-xs">%</span>
+            </div>
+            <div class="variant-loss-meta mt-1 flex flex-col gap-0.5 text-3xs font-mono">
+              ${isShared ? `
+                <div class="flex items-center justify-between text-slate-500">
+                  <span class="var-loss-own-mtr" title="Current variant requirement: ${varMtr.toFixed(1)} Mtr">Current: <strong class="var-loss-own-val text-slate-700">${Math.round(varMtr)}m</strong></span>
+                  ${isOverridden ? `<span class="var-loss-status-tag badge badge-warning text-3xs" style="padding: 0px 4px;">Custom</span>` : ''}
+                </div>
+                <div class="flex items-center justify-between text-indigo-700 font-semibold" title="Combined ${escapeHtml(classKey)} total across ${sharedCount} variants is ${cInfo ? cInfo.baseChainMtr.toFixed(1) : 0} Mtr, which sets this loss %">
+                  <span class="var-loss-mtr-text">Total: <strong class="var-loss-pool-val">${consumptionDisplay}m</strong></span>
+                </div>
+              ` : `
+                <div class="flex items-center justify-between text-slate-600">
+                  <span class="var-loss-mtr-text" title="Pre-loss Base Chain for ${escapeHtml(classKey)} (${(cInfo && cInfo.baseChainMtr ? cInfo.baseChainMtr.toFixed(2) : '0')} Mtr)">
+                    <strong class="var-loss-pool-val font-bold">${consumptionDisplay} Mtr</strong>
+                  </span>
+                  ${isOverridden ? `<span class="var-loss-status-tag badge badge-warning text-3xs" style="padding: 1px 4px;">Custom</span>` : ''}
+                </div>
+              `}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1200,10 +1877,40 @@ function bindCategoryGroupEventListeners() {
 
       group.category = newCat;
 
-      // Ensure slider addition default is initialized if switching to a zipper category
+      // Ensure slider addition default and pin box loss are initialized if switching to a zipper category
       if (newCat === 'cz' || newCat === 'mz' || newCat === 'pz') {
-        if (group.sliderAdditionPercent === undefined) {
-          group.sliderAdditionPercent = 1.5;
+        const groupQty = (group.variants || []).reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+        if (group.sliderAdditionPercent === undefined || !group.isSliderOverridden) {
+          const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+          const dynSliderAdd = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
+          group.sliderAdditionPercent = dynSliderAdd;
+          group.sliderAddPercent = dynSliderAdd;
+        }
+        if (group.pinBoxLossPercent === undefined || !group.isPinBoxLossOverridden) {
+          const relevantPinBoxQty = (window.CalculatorEngine && window.CalculatorEngine.getRelevantPinBoxQuantity)
+            ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || [])
+            : 0;
+          const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
+          group.pinBoxLossPercent = (window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
+            ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty)
+            : 8.0;
+        }
+        group.pinBoxPerZipper = 1;
+
+        if (newCat === 'mz') {
+          if (group.hBottomLossPercent === undefined || !group.isHBottomLossOverridden) {
+            const mz3Variants = (group.variants || []).filter(v => {
+              const sz = String((v && v.zipperSize) || '').trim();
+              return sz.includes('3');
+            });
+            const mz3Qty = mz3Variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+            const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
+              ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
+              : 8.0;
+            group.hBottomLossPercent = dynHBottomLoss;
+            group.mzParams = group.mzParams || {};
+            group.mzParams.hBottomLossPercent = dynHBottomLoss;
+          }
         }
       }
 
@@ -1239,7 +1946,39 @@ function bindCategoryGroupEventListeners() {
     });
   });
 
-  // 2. Group Loss % Input
+  // 2. Zipper Variant/Class Loss % Input (Dynamic Loss Override)
+  const handleLossOverrideInput = (e) => {
+    const groupId = e.target.getAttribute('data-group-id');
+    const classKey = e.target.getAttribute('data-class');
+    const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+    if (group && classKey) {
+      group.classLossOverrides = group.classLossOverrides || {};
+      if (e.target.value !== '') {
+        const val = parseFloat(e.target.value);
+        group.classLossOverrides[classKey] = isNaN(val) ? 0 : Math.max(0, val);
+      } else {
+        delete group.classLossOverrides[classKey];
+      }
+      try {
+        updateClassLossDisplay(groupId);
+      } catch (err) {
+        console.error('Error updating class loss display:', err);
+      }
+      try {
+        updateLiveCalculations();
+      } catch (err) {
+        console.error('Error updating live calculations:', err);
+      }
+    }
+  };
+
+  ['input', 'keyup', 'change', 'paste'].forEach(evtType => {
+    container.querySelectorAll('.input-var-loss, .input-class-loss').forEach(input => {
+      input.addEventListener(evtType, handleLossOverrideInput);
+    });
+  });
+
+  // Legacy Category Loss % Input (if present)
   container.querySelectorAll('.input-group-loss').forEach(input => {
     input.addEventListener('input', (e) => {
       const groupId = e.target.getAttribute('data-group-id');
@@ -1257,7 +1996,84 @@ function bindCategoryGroupEventListeners() {
       const groupId = e.target.getAttribute('data-group-id');
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       if (group) {
-        group.sliderAdditionPercent = e.target.value !== '' ? (parseFloat(e.target.value) || 0) : 1.5;
+        if (e.target.value !== '') {
+          const val = parseFloat(e.target.value);
+          group.isSliderOverridden = true;
+          group.sliderAdditionPercent = !isNaN(val) ? Math.max(0, val) : 0;
+          group.sliderAddPercent = group.sliderAdditionPercent;
+        } else {
+          // Clear / reset override to dynamic chart default
+          group.isSliderOverridden = false;
+          delete group.sliderAdditionPercent;
+          delete group.sliderAddPercent;
+          const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynSliderAdd = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
+          group.sliderAdditionPercent = dynSliderAdd;
+          group.sliderAddPercent = dynSliderAdd;
+        }
+        updateLiveCalculations();
+      }
+    });
+
+    input.addEventListener('change', (e) => {
+      const groupId = e.target.getAttribute('data-group-id');
+      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      if (group && e.target.value === '') {
+        const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+        const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+        const dynSliderAdd = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
+        group.isSliderOverridden = false;
+        group.sliderAdditionPercent = dynSliderAdd;
+        group.sliderAddPercent = dynSliderAdd;
+        e.target.value = dynSliderAdd;
+        updateLiveCalculations();
+      }
+    });
+  });
+
+  // 2b-2. Group Pin Box Loss % Input
+  container.querySelectorAll('.input-group-pin-box').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const groupId = e.target.getAttribute('data-group-id');
+      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      if (group) {
+        group.isPinBoxLossOverridden = true;
+        group.pinBoxLossPercent = e.target.value !== '' ? (parseFloat(e.target.value) || 0) : 0;
+        updateLiveCalculations();
+      }
+    });
+  });
+
+  // 2b-3. Group H-Bottom Loss % Input
+  container.querySelectorAll('.input-group-hbottom-loss').forEach(input => {
+    input.addEventListener('input', (e) => {
+      if (e.target.disabled) return;
+      const groupId = e.target.getAttribute('data-group-id');
+      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      if (group) {
+        if (e.target.value !== '') {
+          const val = parseFloat(e.target.value);
+          group.isHBottomLossOverridden = true;
+          group.hBottomLossPercent = !isNaN(val) ? val : 0;
+          group.mzParams = group.mzParams || {};
+          group.mzParams.hBottomLossPercent = !isNaN(val) ? val : 0;
+        } else {
+          group.isHBottomLossOverridden = false;
+          delete group.hBottomLossPercent;
+          if (group.mzParams) delete group.mzParams.hBottomLossPercent;
+          const mz3Variants = (group.variants || []).filter(item => {
+            const sz = String((item && item.zipperSize) || '').trim();
+            return sz.includes('3');
+          });
+          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
+            ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
+            : 8.0;
+          group.hBottomLossPercent = dynHBottomLoss;
+          group.mzParams = group.mzParams || {};
+          group.mzParams.hBottomLossPercent = dynHBottomLoss;
+        }
         updateLiveCalculations();
       }
     });
@@ -1266,15 +2082,41 @@ function bindCategoryGroupEventListeners() {
   // 2c. Group Dynamic MZ Parameters Input
   container.querySelectorAll('.input-mz-param').forEach(input => {
     input.addEventListener('input', (e) => {
+      if (e.target.disabled) return;
       const groupId = e.target.getAttribute('data-group-id');
       const paramName = e.target.getAttribute('data-param');
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       if (group && paramName) {
-        group.mzParams = group.mzParams || {};
-        if (e.target.value !== '') {
-          group.mzParams[paramName] = parseFloat(e.target.value);
+        if (paramName === 'hBottomLossPercent') {
+          if (e.target.value !== '') {
+            const val = parseFloat(e.target.value);
+            group.isHBottomLossOverridden = true;
+            group.hBottomLossPercent = !isNaN(val) ? val : 0;
+            group.mzParams = group.mzParams || {};
+            group.mzParams.hBottomLossPercent = !isNaN(val) ? val : 0;
+          } else {
+            group.isHBottomLossOverridden = false;
+            delete group.hBottomLossPercent;
+            if (group.mzParams) delete group.mzParams.hBottomLossPercent;
+            const mz3Variants = (group.variants || []).filter(item => {
+              const sz = String((item && item.zipperSize) || '').trim();
+              return sz.includes('3');
+            });
+            const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+            const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
+              ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
+              : 8.0;
+            group.hBottomLossPercent = dynHBottomLoss;
+            group.mzParams = group.mzParams || {};
+            group.mzParams.hBottomLossPercent = dynHBottomLoss;
+          }
         } else {
-          delete group.mzParams[paramName];
+          group.mzParams = group.mzParams || {};
+          if (e.target.value !== '') {
+            group.mzParams[paramName] = parseFloat(e.target.value);
+          } else {
+            delete group.mzParams[paramName];
+          }
         }
         updateLiveCalculations();
       }
@@ -1302,6 +2144,21 @@ function bindCategoryGroupEventListeners() {
         } else {
           delete group.czParams[paramName];
         }
+        updateLiveCalculations();
+      }
+    });
+  });
+
+  // 2d-2. Group Special U-Top Requirement Checkbox (CZ#5 only)
+  container.querySelectorAll('.input-cz-utop-special').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const groupId = e.target.getAttribute('data-group-id');
+      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      if (group) {
+        const isChecked = Boolean(e.target.checked);
+        group.isSpecialUTopOrder = isChecked;
+        group.czParams = group.czParams || {};
+        group.czParams.isSpecialUTopOrder = isChecked;
         updateLiveCalculations();
       }
     });
@@ -1410,13 +2267,31 @@ function bindCategoryGroupEventListeners() {
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       const v = findVariant(groupId, varId);
       if (v && group) {
+        const oldSize = v.zipperSize;
         v.zipperSize = e.target.value;
+        if (group.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+          const oldClass = window.CalculatorEngine.getVariantZipperClass(group.category, v.zipperType, oldSize);
+          const newClass = window.CalculatorEngine.getVariantZipperClass(group.category, v.zipperType, v.zipperSize);
+          if (oldClass && group.classLossOverrides[oldClass] !== undefined) delete group.classLossOverrides[oldClass];
+          if (newClass && group.classLossOverrides[newClass] !== undefined) delete group.classLossOverrides[newClass];
+        }
         if (group.category === 'wire') {
           if (v.zipperSize === '#3' && (group.lossPercent === 5.0 || group.lossPercent === undefined)) {
             group.lossPercent = 4.0;
           } else if (v.zipperSize !== '#3' && (group.lossPercent === 4.0 || group.lossPercent === undefined)) {
             group.lossPercent = 5.0;
           }
+        }
+        if ((group.category === 'mz' || group.category === 'metal') && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+          const mz3Variants = (group.variants || []).filter(item => {
+            const sz = String((item && item.zipperSize) || '').trim();
+            return sz.includes('3');
+          });
+          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty);
+          group.hBottomLossPercent = dynHBottomLoss;
+          group.mzParams = group.mzParams || {};
+          group.mzParams.hBottomLossPercent = dynHBottomLoss;
         }
         if (window.BOMRules) {
           v.allowance = window.BOMRules.getSuggestedAllowance(group.category, v.zipperSize, v.lengthUnit, v.zipperType);
@@ -1427,14 +2302,90 @@ function bindCategoryGroupEventListeners() {
     });
   });
 
-  container.querySelectorAll('.input-var-length').forEach(input => {
-    input.addEventListener('input', (e) => {
-      const { groupId, varId } = getEventGroupAndVarIds(e.target);
-      const v = findVariant(groupId, varId);
-      if (v) {
-        v.length = e.target.value !== '' ? (parseFloat(e.target.value) || 0) : '';
-        updateLiveCalculations();
+  // 6. Variant Field Inputs (Live Calculation Updates & Real-time Keystroke Tracking)
+  const handleVariantDimensionInput = (e) => {
+    const target = e.target;
+    if (!target) return;
+    const { groupId, varId } = getEventGroupAndVarIds(target);
+    const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+    const v = findVariant(groupId, varId);
+    if (!v || !group) return;
+
+    if (target.classList.contains('input-var-qty')) {
+      v.quantity = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+      if (!group.isSliderOverridden) {
+        const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+        if (getSliderDefault) {
+          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynSliderAdd = getSliderDefault(groupQty);
+          group.sliderAdditionPercent = dynSliderAdd;
+          group.sliderAddPercent = dynSliderAdd;
+          const sliderInput = document.getElementById(`input-slider-${group.id}`);
+          if (sliderInput) {
+            sliderInput.value = dynSliderAdd;
+          }
+        }
       }
+      if (!group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
+        const relevantPinBoxQty = window.CalculatorEngine.getRelevantPinBoxQuantity 
+          ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || []) 
+          : 0;
+        const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+        const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
+        const dynPinBoxLoss = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+        group.pinBoxLossPercent = dynPinBoxLoss;
+        const pinBoxInput = document.getElementById(`input-pin-box-${group.id}`);
+        if (pinBoxInput) {
+          pinBoxInput.value = dynPinBoxLoss;
+        }
+      }
+      if ((group.category === 'mz' || group.category === 'metal') && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+        const mz3Variants = (group.variants || []).filter(item => {
+          const sz = String((item && item.zipperSize) || '').trim();
+          return sz.includes('3');
+        });
+        if (mz3Variants.length > 0) {
+          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty);
+          group.hBottomLossPercent = dynHBottomLoss;
+          group.mzParams = group.mzParams || {};
+          group.mzParams.hBottomLossPercent = dynHBottomLoss;
+          const hBottomInput = document.getElementById(`mz-hbottom-loss-${group.id}`);
+          if (hBottomInput && !hBottomInput.disabled) {
+            hBottomInput.value = dynHBottomLoss;
+          }
+        }
+      }
+    } else if (target.classList.contains('input-var-length')) {
+      v.length = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+    }
+
+    // Clear manual class override if any so dynamic chart bracket recalculation immediately reflects typed quantity/length
+    if (group.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+      const classKey = window.CalculatorEngine.getVariantZipperClass(v, group.category);
+      if (classKey && group.classLossOverrides[classKey] !== undefined) {
+        delete group.classLossOverrides[classKey];
+      }
+    }
+
+    // 1. IMMEDIATELY update variant card loss % and Mtr displays on EVERY keystroke
+    try {
+      updateClassLossDisplay(groupId);
+    } catch (err) {
+      console.error('Error updating class loss display:', err);
+    }
+
+    // 2. Refresh live BOM calculation tables
+    try {
+      updateLiveCalculations();
+    } catch (err) {
+      console.error('Error updating live calculations:', err);
+    }
+  };
+
+  ['input', 'keyup', 'change', 'paste'].forEach(evtType => {
+    container.querySelectorAll('.input-var-length, .input-var-qty').forEach(input => {
+      input.addEventListener(evtType, handleVariantDimensionInput);
     });
   });
 
@@ -1453,29 +2404,33 @@ function bindCategoryGroupEventListeners() {
     });
   });
 
-  container.querySelectorAll('.input-var-qty').forEach(input => {
-    input.addEventListener('input', (e) => {
-      const { groupId, varId } = getEventGroupAndVarIds(e.target);
-      const v = findVariant(groupId, varId);
-      if (v) {
-        v.quantity = e.target.value !== '' ? (parseFloat(e.target.value) || 0) : '';
-        updateLiveCalculations();
-      }
-    });
-  });
-
   container.querySelectorAll('.input-var-type').forEach(select => {
     select.addEventListener('change', (e) => {
       const { groupId, varId } = getEventGroupAndVarIds(e.target);
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       const v = findVariant(groupId, varId);
       if (v && group) {
+        const oldType = v.zipperType;
         v.zipperType = e.target.value;
+        if (group.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+          const oldClass = window.CalculatorEngine.getVariantZipperClass(group.category, oldType, v.zipperSize);
+          const newClass = window.CalculatorEngine.getVariantZipperClass(group.category, v.zipperType, v.zipperSize);
+          if (oldClass && group.classLossOverrides[oldClass] !== undefined) delete group.classLossOverrides[oldClass];
+          if (newClass && group.classLossOverrides[newClass] !== undefined) delete group.classLossOverrides[newClass];
+        }
         if (window.BOMRules) {
           v.allowance = window.BOMRules.getSuggestedAllowance(group.category, v.zipperSize, v.lengthUnit, v.zipperType);
           v.bomRows = window.BOMRules.generateSuggestedBOM(v, group.category);
         }
-        updateLiveCalculations();
+        if (!group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
+          const relevantPinBoxQty = window.CalculatorEngine.getRelevantPinBoxQuantity 
+            ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || []) 
+            : 0;
+          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
+          group.pinBoxLossPercent = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+        }
+        rebuildAndRenderAll();
       }
     });
   });
@@ -1523,31 +2478,42 @@ function findVariant(groupId, varId) {
 function updateLiveCalculations() {
   if (!window.CalculatorEngine) return;
 
-  const result = window.CalculatorEngine.calculateFullEstimate(appState.currentEstimate);
-  appState.lastCalculation = result;
+  try {
+    const result = window.CalculatorEngine.calculateFullEstimate(appState.currentEstimate);
+    appState.lastCalculation = result;
 
-  const rows = (result && result.aggregatedMaterials && Array.isArray(result.aggregatedMaterials.processedRows)) 
-    ? result.aggregatedMaterials.processedRows 
-    : [];
+    const rows = (result && result.aggregatedMaterials && Array.isArray(result.aggregatedMaterials.processedRows)) 
+      ? result.aggregatedMaterials.processedRows 
+      : [];
 
-  // Default active material if none is currently selected or if previous selection is invalid
-  if (rows.length > 0) {
-    const isCurrentValid = rows.some(r => r.key === appState.selectedMaterialKey);
-    if (!isCurrentValid) {
-      appState.selectedMaterialKey = rows[0].key;
+    // Default active material if none is currently selected or if previous selection is invalid
+    if (rows.length > 0) {
+      const isCurrentValid = rows.some(r => r.key === appState.selectedMaterialKey);
+      if (!isCurrentValid) {
+        appState.selectedMaterialKey = rows[0].key;
+      }
+    } else {
+      appState.selectedMaterialKey = null;
     }
-  } else {
-    appState.selectedMaterialKey = null;
+
+    // 1. Render Consolidated / Merged BOM Table with [ View Calculation ] buttons
+    renderConsolidatedBOM(result.aggregatedMaterials);
+
+    // 2. Render Material-Specific Calculation Details
+    renderCalculationDetails();
+
+    // 3. Update Zipper Class Loss displays across category groups
+    if (Array.isArray(appState.currentEstimate.categoryGroups)) {
+      appState.currentEstimate.categoryGroups.forEach(g => {
+        updateClassLossDisplay(g.id);
+      });
+    }
+
+    // 4. Update At-a-Glance Category BOM Parameter Previews
+    updateCategoryParameterPreviews();
+  } catch (err) {
+    console.error('Error during updateLiveCalculations:', err);
   }
-
-  // 1. Render Consolidated / Merged BOM Table with [ View Calculation ] buttons
-  renderConsolidatedBOM(result.aggregatedMaterials);
-
-  // 2. Render Material-Specific Calculation Details
-  renderCalculationDetails();
-
-  // 3. Update Summary KPI Cards & Totals
-  updateSummaryKPIs(result);
 }
 
 /**
@@ -1736,7 +2702,8 @@ function renderCalculationDetails() {
 
     // Render each contributing source
     sources.forEach((src, sIdx) => {
-      const srcQtyFormatted = formatNumberPrecision(src.quantity);
+      const srcRow = { ...activeMaterial, ...src };
+      const srcQtyFormatted = formatNumberPrecision(src.quantity, 4, srcRow);
       const srcDetail = src.calculationDetail;
       const srcSteps = (srcDetail && Array.isArray(srcDetail.steps)) ? srcDetail.steps : [];
 
@@ -1760,7 +2727,10 @@ function renderCalculationDetails() {
     });
 
     // Final Summation Block
-    const sumParts = sources.map((s, idx) => `Source ${idx + 1} [${escapeHtml(s.groupName)}]: ${formatNumberPrecision(s.quantity)} ${escapeHtml(s.unit || unitLabel)}`).join(' + ');
+    const sumParts = sources.map((s, idx) => {
+      const sRow = { ...activeMaterial, ...s };
+      return `Source ${idx + 1} [${escapeHtml(s.groupName)}]: ${formatNumberPrecision(s.quantity, 4, sRow)} ${escapeHtml(s.unit || unitLabel)}`;
+    }).join(' + ');
     html += `
       <div class="calc-merger-total-card p-4 bg-emerald-50/90 rounded-xl border border-emerald-200 mt-3 shadow-sm">
         <div class="text-xs font-bold uppercase tracking-wider text-emerald-800 mb-1.5 flex items-center gap-1.5">
@@ -1952,9 +2922,13 @@ function renderConsolidatedBOM(materialsData) {
 
     // Partition groupRows into Subtypes
     const subtypeMap = {};
+    const primarySubtypeRow = groupRows.find(r => r.subtypeKey || (r.calculationDetail && r.calculationDetail.size));
+    const defaultSubKey = primarySubtypeRow 
+      ? (primarySubtypeRow.subtypeKey || primarySubtypeRow.calculationDetail.size)
+      : 'default';
 
     groupRows.forEach(r => {
-      const subKey = r.subtypeKey || (r.calculationDetail ? r.calculationDetail.size : 'default');
+      const subKey = r.subtypeKey || (r.calculationDetail && r.calculationDetail.size) || defaultSubKey;
       if (!subtypeMap[subKey]) {
         subtypeMap[subKey] = {
           key: subKey,
@@ -1992,7 +2966,7 @@ function renderConsolidatedBOM(materialsData) {
                 ${group.color ? `<span class="badge badge-secondary">${escapeHtml(group.color)}</span>` : ''}
               </div>
               <p class="bom-group-meta-sub">
-                ${(group.variants || []).length} Variant${(group.variants || []).length > 1 ? 's' : ''} &bull; Total Order: <strong>${(group.totalQuantity || 0).toLocaleString()} pcs</strong> &bull; Factory Loss: ${group.lossPercent}%
+                ${(group.variants || []).length} Variant${(group.variants || []).length > 1 ? 's' : ''} &bull; Total Order: <strong>${(group.totalQuantity || 0).toLocaleString()} pcs</strong> &bull; Factory Loss: <strong>${renderGroupLossMeta(group)}</strong>
               </p>
             </div>
           </div>
@@ -2378,6 +3352,7 @@ function handleNewEstimate() {
           color: '',
           remarks: '',
           lossPercent: 3.0,
+          classLossOverrides: {},
           variants: [
             {
               id: 'var_1',
@@ -2702,6 +3677,33 @@ function setElementStyleWidth(id, width) {
 }
 
 /**
+ * Helper to identify if a row or material or unit corresponds to Slider
+ * @param {Object|string} rowOrUnit 
+ * @returns {boolean}
+ */
+function isSliderRow(rowOrUnit) {
+  if (!rowOrUnit) return false;
+  if (typeof rowOrUnit === 'string') {
+    return rowOrUnit.toLowerCase().includes('slider');
+  }
+  if (typeof rowOrUnit !== 'object') return false;
+
+  const comp = String(rowOrUnit.component || '').toLowerCase();
+  const name = String(rowOrUnit.materialName || rowOrUnit.name || '').toLowerCase();
+  const matId = String(rowOrUnit.materialId || rowOrUnit.key || rowOrUnit.id || '').toLowerCase();
+  const cat = String(rowOrUnit.componentCategory || rowOrUnit.category || '').toLowerCase();
+  const calcDetailName = String((rowOrUnit.calculationDetail && rowOrUnit.calculationDetail.materialName) || '').toLowerCase();
+  const calcDetailComp = String((rowOrUnit.calculationDetail && rowOrUnit.calculationDetail.component) || '').toLowerCase();
+
+  return cat === 'slider' ||
+         comp.includes('slider') ||
+         name.includes('slider') ||
+         matId.includes('slider') ||
+         calcDetailName.includes('slider') ||
+         calcDetailComp.includes('slider');
+}
+
+/**
  * Determine the exact display decimal precision for a BOM material based on Excel rules
  * @param {Object|string} rowOrUnit - BOM row object or unit string
  * @returns {number}
@@ -2735,18 +3737,23 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 0;
   }
 
-  // 3. Piece/Pcs count (e.g. Sliders)
-  if (unit === 'pcs' || unit === 'pc') {
-    if (Number.isInteger(val)) return 0;
-    return 2; // Keep 2 decimal places for fractional slider additions
+  // 3. Slider count (unit: Pcs) -> Always whole pieces (0 decimals; rounded up to next integer if fraction)
+  if (isSliderRow(rowOrUnit)) {
+    return 0;
   }
 
-  // 4. PZ Tape-Wise resin (Excel uses 4 decimals, e.g. 20.7727 KG)
+  // 4. Piece/Pcs count (e.g. Pin Box)
+  if (unit === 'pcs' || unit === 'pc' || comp.includes('pin box') || name.includes('pin box') || matId.includes('pin_box')) {
+    if (Number.isInteger(val)) return 0;
+    return 2; // Keep 2 decimal places for fractional pin box additions
+  }
+
+  // 5. PZ Tape-Wise resin (Excel uses 4 decimals, e.g. 20.7727 KG)
   if (matId.includes('tape_wise') || matId.includes('tape_resin') || comp.includes('tape wise') || name.includes('tape wise')) {
     return 4;
   }
 
-  // 5. PZO and PZC molded element resin (Excel uses 3 decimals, e.g. 5.923 KG, 3.863 KG)
+  // 6. PZO and PZC molded element resin (Excel uses 3 decimals, e.g. 5.923 KG, 3.863 KG)
   if (
     matId.includes('pzo') || matId.includes('pzc') ||
     comp.startsWith('pzo') || comp.startsWith('pzc') ||
@@ -2755,7 +3762,7 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 3;
   }
 
-  // 6. Chain Consumption / Required Chain Length (unit: Mtr) -> nearest whole number in BOM display (0 decimals)
+  // 7. Chain Consumption / Required Chain Length (unit: Mtr) -> nearest whole number in BOM display (0 decimals)
   if (
     matId.includes('chain_consumption') ||
     comp.includes('chain consumption') ||
@@ -2769,7 +3776,7 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 0;
   }
 
-  // 7. Standard Tape KG, Stop Wire KG, Teeth Wire KG, Element Resin KG -> 2 decimals in Excel
+  // 8. Standard Tape KG, Stop Wire KG, Teeth Wire KG, Element Resin KG -> 2 decimals in Excel
   return 2;
 }
 
@@ -2803,6 +3810,11 @@ function formatBOMQuantity(rowOrQty, unit = '', contextRow = null) {
   } else {
     val = Number(rowOrQty) || 0;
     row = contextRow || { totalQuantity: val, unit: unit };
+  }
+
+  // Sliders are physical whole pieces -> display as the next integer if value comes as fraction
+  if (isSliderRow(row) || isSliderRow(unit) || (contextRow && isSliderRow(contextRow))) {
+    return Math.ceil(val).toLocaleString('en-US');
   }
 
   const decimals = getMaterialDisplayDecimals(row);

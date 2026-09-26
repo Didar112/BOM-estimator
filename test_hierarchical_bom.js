@@ -173,11 +173,11 @@ assertEquals(calcResult.totals.quantity, 11880, 'Total Order Quantity = 9,380 (C
 
 const czGroup = calcResult.categoryGroups[0];
 assertEquals(czGroup.totalQuantity, 9380, 'CZ Group Total Quantity = 9,380 pcs');
-assertEquals(czGroup.materials.processedRows.length, 13, 'CZ Group produced 13 BOM materials (7 for CZ#5 + 6 for CZ#3)');
+assertEquals(czGroup.materials.processedRows.length, 14, 'CZ Group produced 14 BOM materials (7 for CZ#5 + 6 for CZ#3 + Pin Box)');
 
 const pzGroup = calcResult.categoryGroups[1];
 assertEquals(pzGroup.totalQuantity, 2500, 'PZ Group Total Quantity = 2,500 pcs');
-assert(pzGroup.materials.processedRows.length >= 6, 'PZ Group produced BOM rows');
+assert(pzGroup.materials.processedRows.length >= 3, 'PZ Group produced BOM rows');
 
 console.log('\n--- 2. Testing Subtype Metadata Preservation on BOM Rows ---');
 const czRows = czGroup.materials.processedRows;
@@ -210,6 +210,7 @@ assertEquals(pzTapeWise.subtypeName, 'PZ#3', 'PZ Tape Wise has subtypeName PZ#3'
 assertEquals(pzTapeWise.totalSubtypeQuantity, 2500, 'PZ Tape Wise totalSubtypeQuantity = 2,500 pcs');
 
 console.log('\n--- 3. Testing App.js Hierarchical HTML Structure & Rendering ---');
+eval(appJsCode.substring(appJsCode.indexOf('function renderGroupLossMeta('), appJsCode.indexOf('function buildClassLossSectionHTML(')));
 eval(appJsCode.substring(appJsCode.indexOf('function renderConsolidatedBOM'), appJsCode.indexOf('function handleAddCustomMaterialSubmit')));
 
 renderConsolidatedBOM(calcResult.aggregatedMaterials);

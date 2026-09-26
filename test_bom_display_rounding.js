@@ -123,14 +123,36 @@ const sliderIntRow = {
 };
 assertEquals(formatBOMQuantity(sliderIntRow), '4,060', 'Slider Integer Pcs: 4060 -> 4,060');
 
-// Slider CZ#3 (fractional pcs)
+// Slider CZ#3 (fractional pcs -> rounded up to next integer)
 const sliderFracRow = {
   key: 'mat_cz_slider_3',
   materialName: 'Slider CZ#3 (+1.5% Add.)',
   unit: 'Pcs',
   totalQuantity: 5460.70
 };
-assertEquals(formatBOMQuantity(sliderFracRow), '5,460.70', 'Slider Fractional Pcs: 5460.70 -> 5,460.70');
+assertEquals(formatBOMQuantity(sliderFracRow), '5,461', 'Slider Fractional Pcs: 5460.70 -> 5,461 (next integer)');
+
+// User Screenshot Verification 1: Slider MZ#5 with 1,486.25 pcs -> 1,487
+const sliderMz5Row = {
+  key: 'mat_mz_slider_5',
+  materialName: 'Slider MZ#5 (+2.5% Add.)',
+  component: 'SLIDER (+2.5% ADD.)',
+  componentCategory: 'slider',
+  unit: 'Pcs',
+  totalQuantity: 1486.25
+};
+assertEquals(formatBOMQuantity(sliderMz5Row), '1,487', 'User Case 1: Slider MZ#5 1486.25 -> 1,487 (next integer)');
+
+// User Screenshot Verification 2: Slider MZ#3 with 717.50 pcs -> 718
+const sliderMz3Row = {
+  key: 'mat_mz_slider_3',
+  materialName: 'Slider MZ#3 (+2.5% Add.)',
+  component: 'SLIDER (+2.5% ADD.)',
+  componentCategory: 'slider',
+  unit: 'Pcs',
+  totalQuantity: 717.50
+};
+assertEquals(formatBOMQuantity(sliderMz3Row), '718', 'User Case 2: Slider MZ#3 717.50 -> 718 (next integer)');
 
 // Metal Zipper Teeth Wire
 const mzTeethWireRow = {

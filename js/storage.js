@@ -7,6 +7,22 @@
 const STORAGE_KEY = 'zipper_bom_estimates_v2';
 
 /**
+ * Determine dynamic Slider Add % default from updated factory chart based on zipper pcs
+ * @param {number} qty
+ * @returns {number}
+ */
+function getStorageSliderDefault(qty) {
+  if (typeof window !== 'undefined' && window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage)) {
+    return (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage)(qty);
+  }
+  const q = Math.max(0, Number(qty) || 0);
+  if (q <= 500) return 8.0;
+  if (q <= 2000) return 4.0;
+  if (q <= 5000) return 2.5;
+  return 1.5;
+}
+
+/**
  * Generate sample multi-variant default preset estimates to showcase the application
  * @returns {Array<Object>}
  */
@@ -194,6 +210,15 @@ function normalizeEstimate(est) {
       }];
     }
 
+    const legacyZipperQty = legacyVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+    const legacySliderOverridden = Boolean(normalized.isSliderOverridden);
+    const currentLegacySlider = (normalized.sliderAdditionPercent !== undefined && normalized.sliderAdditionPercent !== null)
+      ? normalized.sliderAdditionPercent
+      : normalized.sliderAddPercent;
+    const legacySliderAddVal = legacySliderOverridden && currentLegacySlider !== undefined && currentLegacySlider !== null
+      ? Number(currentLegacySlider)
+      : getStorageSliderDefault(legacyZipperQty);
+
     normalized.categoryGroups = [{
       id: 'categoryGroup_1',
       name: 'Category Group 1',
@@ -202,7 +227,11 @@ function normalizeEstimate(est) {
       color: normalized.color || '',
       remarks: normalized.remarks || '',
       lossPercent: normalized.lossPercent !== undefined ? Number(normalized.lossPercent) : 3.0,
-      sliderAdditionPercent: normalized.sliderAdditionPercent !== undefined ? Number(normalized.sliderAdditionPercent) : 1.5,
+      sliderAdditionPercent: legacySliderAddVal,
+      sliderAddPercent: legacySliderAddVal,
+      isSliderOverridden: legacySliderOverridden,
+      pinBoxPerZipper: normalized.pinBoxPerZipper !== undefined ? Number(normalized.pinBoxPerZipper) : 1,
+      isSpecialUTopOrder: Boolean(normalized.isSpecialUTopOrder || (normalized.czParams && normalized.czParams.isSpecialUTopOrder)),
       variants: legacyVariants
     }];
   } else {
@@ -221,6 +250,15 @@ function normalizeEstimate(est) {
         bomRows: []
       }];
 
+      const groupZipperQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+      const isSliderOverridden = Boolean(g.isSliderOverridden);
+      const currentSliderVal = (g.sliderAdditionPercent !== undefined && g.sliderAdditionPercent !== null)
+        ? g.sliderAdditionPercent
+        : g.sliderAddPercent;
+      const sliderAddVal = isSliderOverridden && currentSliderVal !== undefined && currentSliderVal !== null
+        ? Number(currentSliderVal)
+        : getStorageSliderDefault(groupZipperQty);
+
       return {
         id: g.id || `categoryGroup_${idx + 1}`,
         name: g.name || `Category Group ${idx + 1}`,
@@ -229,10 +267,19 @@ function normalizeEstimate(est) {
         color: g.color || '',
         remarks: g.remarks || '',
         lossPercent: g.lossPercent !== undefined ? Number(g.lossPercent) : (g.category === 'wire' ? 4.0 : 3.0),
-        sliderAdditionPercent: g.sliderAdditionPercent !== undefined ? Number(g.sliderAdditionPercent) : 1.5,
+        sliderAdditionPercent: sliderAddVal,
+        sliderAddPercent: sliderAddVal,
+        isSliderOverridden: isSliderOverridden,
+        pinBoxLossPercent: g.pinBoxLossPercent !== undefined ? Number(g.pinBoxLossPercent) : 4.0,
+        isPinBoxLossOverridden: Boolean(g.isPinBoxLossOverridden),
+        pinBoxPerZipper: 1,
+        hBottomLossPercent: g.hBottomLossPercent !== undefined ? Number(g.hBottomLossPercent) : undefined,
+        isHBottomLossOverridden: Boolean(g.isHBottomLossOverridden),
+        isSpecialUTopOrder: Boolean(g.isSpecialUTopOrder || (g.czParams && g.czParams.isSpecialUTopOrder)),
         czParams: (g.czParams && typeof g.czParams === 'object') ? g.czParams : {},
         mzParams: (g.mzParams && typeof g.mzParams === 'object') ? g.mzParams : {},
         wireParams: (g.wireParams && typeof g.wireParams === 'object') ? g.wireParams : {},
+        pzParams: (g.pzParams && typeof g.pzParams === 'object') ? g.pzParams : {},
         variants: groupVariants
       };
     });

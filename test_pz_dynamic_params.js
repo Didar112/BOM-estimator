@@ -30,7 +30,7 @@ const {
   buildPZConsolidatedBOMRows
 } = window.PZFormulaEngine;
 
-const { calculateFullEstimate } = window.CalculatorEngine;
+const { calculateFullEstimate, formatBOMQuantity } = window.CalculatorEngine;
 const { getSuggestedAllowance } = window.BOMRules;
 
 let totalTests = 0;

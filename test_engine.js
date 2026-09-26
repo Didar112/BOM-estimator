@@ -148,7 +148,7 @@ const cz5InchResult = calculateCZGroup(cz5InchVariants, '#5', 3.0);
 assertEquals(cz5InchResult.totalQuantity, 10000, 'CZ#5 Total Quantity = 10,000 pcs');
 assertEquals(cz5InchResult.chainConsumptionMtr, (11.78 * 10000) / 39.37, 'CZ#5 Chain Consumption', 0.001);
 assertEquals(cz5InchResult.totalTapeKg, (cz5InchResult.chainConsumptionMtr * 1.03) / 54.5, 'CZ#5 Tape KG (Divisor 54.5)', 0.001);
-assertEquals(cz5InchResult.uTopKg, 0.74, 'CZ#5 U-Top factor 0.074 = 0.74 KG');
+assertEquals(cz5InchResult.uTopQty, 20000, 'CZ#5 U-Top = 10,000 * 2 = 20,000 Pcs');
 assertEquals(cz5InchResult.sliderQuantity, 10150, 'CZ#5 Slider +1.5% = 10,150 pcs');
 
 // 4. VERIFIED MZ FORMULA VALIDATIONS
@@ -174,11 +174,11 @@ assertEquals(mz3InchResult.teethWireKg, expectedMZ3TeethWire, 'MZ#3 Teeth Wire K
 // Top Stop Wire: 2000 * 0.22 / 1000 = 0.44 KG
 assertEquals(mz3InchResult.topStopKg, (2000 * 0.22) / 1000, 'MZ#3 T/S Wire (0.22/1000)');
 
-// H-Bottom: 2000 * 1.025 = 2050 pcs
-assertEquals(mz3InchResult.hBottomPcs, 2000 * 1.025, 'MZ#3 H-Bottom (+2.5% loss = 2,050 pcs)');
+// H-Bottom: 2000 * 1.04 = 2080 pcs (4% dynamic loss for 501-2000 pcs)
+assertEquals(mz3InchResult.hBottomPcs, 2000 * 1.04, 'MZ#3 H-Bottom (+4% dynamic loss = 2,080 pcs)');
 
-// Slider: 2000 * 1.015 = 2030 pcs
-assertEquals(mz3InchResult.sliderPcs, 2030, 'MZ#3 Slider (+1.5% loss = 2,030 pcs)');
+// Slider: 2000 * 1.04 = 2080 pcs (4% dynamic loss for 501-2000 pcs)
+assertEquals(mz3InchResult.sliderPcs, 2080, 'MZ#3 Slider (+4% dynamic loss = 2,080 pcs)');
 
 // MZ#3 CM test
 const mz3CmVariants = [
@@ -211,8 +211,8 @@ assertEquals(mz5InchResult.topStopKg, (3000 * 0.32) / 1000, 'MZ#5 Top Stop Wire 
 // Wire for B/S# 4 & 5: 3000 * 0.172 / 1000 = 0.516 KG
 assertEquals(mz5InchResult.bottomStopKg, (3000 * 0.172) / 1000, 'MZ#5 Bottom Stop Wire (0.172/1000)');
 
-// Slider: 3000 * 1.015 = 3045 pcs
-assertEquals(mz5InchResult.sliderPcs, 3045, 'MZ#5 Slider (+1.5% = 3,045 pcs)');
+// Slider: 3000 * 1.025 = 3075 pcs (2.5% dynamic loss for 2001-5000 pcs)
+assertEquals(mz5InchResult.sliderPcs, 3075, 'MZ#5 Slider (+2.5% dynamic loss = 3,075 pcs)');
 
 // MZ#5 CM test
 const mz5CmVariants = [
@@ -436,7 +436,7 @@ assert(userBOMComponents.includes('T/S#5'), 'User BOM has T/S#5');
 assert(userBOMComponents.includes('B/S#5'), 'User BOM has B/S#5');
 assert(userBOMComponents.includes('CZ#5 RESIN'), 'User BOM has CZ#5 RESIN');
 assert(userBOMComponents.includes('TOLLILON FLAT WIRE'), 'User BOM has TOLLILON FLAT WIRE');
-assert(userBOMComponents.includes('ULTRASONIC U-TOP'), 'User BOM has ULTRASONIC U-TOP');
+assert(userBOMComponents.includes('U-TOP'), 'User BOM has U-TOP');
 
 // Verify no intermediate or generic variables in BOM
 assert(!userBOMComponents.includes('CHAIN CONSUMPTION'), 'User BOM does not have CHAIN CONSUMPTION');

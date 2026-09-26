@@ -193,16 +193,16 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
       allowDelete: false
     });
 
-    // 7. Ultrasonic U-Top (only for CZ#5)
+    // 7. U-Top (only for CZ#5)
     if (!isSize3) {
       bomRows.push({
         id: `bom_row_${rowCounter++}`,
-        component: 'ULTRASONIC U-TOP',
+        component: 'U-TOP',
         componentCategory: 'stop',
         materialId: 'mat_cz_utop_5',
-        materialName: 'Ultrasonic U-Top (CZ#5)',
-        specification: 'Ultrasonic U-Top Factor 0.074 / 1000',
-        unit: 'KG',
+        materialName: 'U-Top (CZ#5)',
+        specification: 'U-Top Stop for CZ#5',
+        unit: 'Pcs',
         isLengthDependent: false,
         unitPrice: 350.00,
         wastagePercent: 0,

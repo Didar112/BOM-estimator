@@ -105,6 +105,9 @@
   .category-dynamic-params-grid {
     grid-template-columns: repeat(3, 1fr);
   }
+  .category-dynamic-param-utop-card {
+    grid-column: span 3;
+  }
 
   @media (max-width: 640px) {
     .category-controls-grid {
@@ -122,11 +125,17 @@
       grid-template-columns: repeat(2, 1fr);
       gap: 10px;
     }
+    .category-dynamic-param-utop-card {
+      grid-column: span 2;
+    }
   }
 
   @media (max-width: 420px) {
     .category-dynamic-params-grid {
       grid-template-columns: 1fr;
+    }
+    .category-dynamic-param-utop-card {
+      grid-column: span 1;
     }
   }
 

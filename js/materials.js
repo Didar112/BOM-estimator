@@ -354,15 +354,15 @@ const SAMPLE_MATERIALS = [
     defaultWastagePercent: 0
   },
 
-  // ==================== 7. ULTRASONIC U-TOP ====================
+  // ==================== 7. U-TOP ====================
   {
     id: 'mat_cz_utop_5',
-    name: 'Ultrasonic U-Top (CZ#5)',
+    name: 'U-Top (CZ#5)',
     componentCategory: 'stop',
     compatibleCategory: ['cz', 'nylon'],
     compatibleSizes: ['#5'],
-    specification: 'Ultrasonic U-Top Stop for CZ#5 (Factor 0.074 / 1000)',
-    defaultUnit: 'KG',
+    specification: 'U-Top Stop for CZ#5',
+    defaultUnit: 'Pcs',
     unitPriceBDT: 350.00,
     defaultWastagePercent: 0
   },

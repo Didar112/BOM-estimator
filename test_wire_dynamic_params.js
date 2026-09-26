@@ -29,6 +29,14 @@ const {
   WIRE_CONSTANTS
 } = window.WireFormulaEngine;
 
+function formatBOMQuantity(row) {
+  if (!row) return '0';
+  if (row.unit === 'Mtr' && row.component === 'Total Required Chain Length') {
+    return Math.round(row.totalQuantity || 0).toString();
+  }
+  return (row.totalQuantity || 0).toFixed(2);
+}
+
 const {
   calculateFullEstimate,
   buildMergedBOM

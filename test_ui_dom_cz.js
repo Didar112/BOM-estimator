@@ -53,7 +53,7 @@ assert('app.js includes data-param="tapeDivisor"', appJsSource.includes('data-pa
 assert('app.js includes data-param="topStopFactor"', appJsSource.includes('data-param="topStopFactor"'));
 assert('app.js includes data-param="bottomStopFactor"', appJsSource.includes('data-param="bottomStopFactor"'));
 assert('app.js includes data-param="resinDivisor"', appJsSource.includes('data-param="resinDivisor"'));
-assert('app.js includes data-param="uTopFactor"', appJsSource.includes('data-param="uTopFactor"'));
+assert('app.js includes input-cz-utop-special', appJsSource.includes('input-cz-utop-special'));
 assert('app.js includes data-param="tollilon1Divisor"', appJsSource.includes('data-param="tollilon1Divisor"'));
 assert('app.js includes data-param="tollilon2Divisor"', appJsSource.includes('data-param="tollilon2Divisor"'));
 
@@ -86,7 +86,7 @@ assert('CZ#3 HTML contains Bottom Stop Factor with default 0.03', cz3Html.includ
 assert('CZ#3 HTML contains Resin Divisor with default 1000', cz3Html.includes('value="1000"') && cz3Html.includes('Resin Divisor'));
 assert('CZ#3 HTML contains Tollilon Divisor 1 with default 14400', cz3Html.includes('value="14400"') && cz3Html.includes('Tollilon Divisor 1'));
 assert('CZ#3 HTML contains Tollilon Divisor 2 with default 9500', cz3Html.includes('value="9500"') && cz3Html.includes('Tollilon Divisor 2'));
-assert('CZ#3 HTML does NOT contain U-Top Factor', !cz3Html.includes('U-Top Factor') && !cz3Html.includes('uTopFactor'));
+assert('CZ#3 HTML does NOT contain Special U-Top Requirement', !cz3Html.includes('Special U-Top Requirement') && !cz3Html.includes('input-cz-utop-special'));
 
 // Render CZ#5 group
 const cz5Group = {
@@ -106,7 +106,7 @@ assert('CZ#5 HTML contains Tape Divisor with default 54.5', cz5Html.includes('va
 assert('CZ#5 HTML contains Top Stop Factor with default 0.04', cz5Html.includes('value="0.04"'));
 assert('CZ#5 HTML contains Bottom Stop Factor with default 0.04', cz5Html.includes('value="0.04"'));
 assert('CZ#5 HTML contains Resin Divisor with default 900', cz5Html.includes('value="900"'));
-assert('CZ#5 HTML contains U-Top Factor with default 0.074', cz5Html.includes('value="0.074"') && cz5Html.includes('U-Top Factor'));
+assert('CZ#5 HTML contains Special U-Top Requirement checkbox', cz5Html.includes('Special U-Top Requirement (1 pc per zipper)') && cz5Html.includes('input-cz-utop-special'));
 assert('CZ#5 HTML contains Tollilon Divisor 1 with default 7700', cz5Html.includes('value="7700"'));
 assert('CZ#5 HTML contains Tollilon Divisor 2 with default 8600', cz5Html.includes('value="8600"'));
 
@@ -174,6 +174,13 @@ assert('WIRE#5 Long HTML contains "WIRE Production Parameters (WIRE#5 Long Teeth
 assert('WIRE#5 Long HTML contains Wire Allowance with default 1.97', wire5LongHtml.includes('value="1.97"') && wire5LongHtml.includes('Wire Allowance'));
 assert('WIRE#5 Long HTML contains Wire Divisor with default 20.6', wire5LongHtml.includes('value="20.6"') && wire5LongHtml.includes('Wire Divisor'));
 assert('WIRE#5 Long HTML does NOT contain Slider Add %', !wire5LongHtml.includes('Slider Add %'));
+assert('WIRE#5 Long HTML does NOT contain Pin Box Loss %', !wire5LongHtml.includes('Pin Box Loss %'));
+
+// Test 6: Verify Pin Box Loss % in CZ Group HTML
+assert('CZ#3 HTML contains "Slider Add %"', cz3Html.includes('Slider Add %'));
+assert('CZ#3 HTML contains "Pin Box Loss %"', cz3Html.includes('Pin Box Loss %'));
+assert('CZ#3 HTML does NOT contain "Pin Box / Zipper"', !cz3Html.includes('Pin Box / Zipper'));
+assert('CZ#3 HTML does NOT contain "Pcs" badge for Pin Box', !cz3Html.includes('category-control-pin-box') || !cz3Html.includes('>Pcs<'));
 
 console.log('\n====================================================');
 console.log(`DOM & UI TEST RESULTS: ${passed} / ${total} PASSED (100% SUCCESS)`);

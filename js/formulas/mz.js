@@ -113,7 +113,15 @@ function calculateMZGroup(variants, mzSize = '#3', globalLossPercent = 3.0, cust
   const cfg = MZ_CONSTANTS[sizeKey];
   const lossPercent = Math.max(0, Number(globalLossPercent) || 0);
 
-  const defaultSliderPercent = cfg.sliderAdditionPercent || 1.5;
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                  (typeof require !== 'undefined' ? (function() { try { return require('../calculations.js'); } catch(e) { return null; } })() : null);
+
+  const groupQty = (Array.isArray(variants) ? variants : []).reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  const getSliderDefault = calcEng && (calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage);
+  const defaultSliderPercent = getSliderDefault
+    ? getSliderDefault(groupQty)
+    : (groupQty <= 500 ? 8.0 : (groupQty <= 2000 ? 4.0 : (groupQty <= 5000 ? 2.5 : 1.5)));
+
   const sliderAdditionPercent = (customSliderAdditionPercent !== null && customSliderAdditionPercent !== undefined && !isNaN(customSliderAdditionPercent))
     ? Math.max(0, Number(customSliderAdditionPercent))
     : defaultSliderPercent;
@@ -141,9 +149,13 @@ function calculateMZGroup(variants, mzSize = '#3', globalLossPercent = 3.0, cust
     ? Number(customParams.topStopDivisor)
     : cfg.topStopDivisor;
 
+  const defaultHBottomPercent = (calcEng && calcEng.getHBottomDynamicLossPercentage)
+    ? calcEng.getHBottomDynamicLossPercentage(groupQty)
+    : (groupQty <= 500 ? 8.0 : (groupQty <= 2000 ? 4.0 : 2.5));
+
   const hBottomLossPercent = (customParams && customParams.hBottomLossPercent !== undefined && !isNaN(customParams.hBottomLossPercent) && Number(customParams.hBottomLossPercent) >= 0)
     ? Number(customParams.hBottomLossPercent)
-    : (cfg.hBottomLossPercent !== undefined ? cfg.hBottomLossPercent : 2.5);
+    : defaultHBottomPercent;
   const hBottomMultiplier = 1 + (hBottomLossPercent / 100);
 
   const activeParams = {
@@ -232,9 +244,13 @@ function calculateMZGroup(variants, mzSize = '#3', globalLossPercent = 3.0, cust
   // 4. Bottom Stop / H-Bottom Material
   let bottomStopKg = 0;
   let hBottomPcs = 0;
+  let baseHBottomQty = 0;
+  let hBottomLossQty = 0;
   if (cfg.hasHBottom) {
-    // MZ#3: H-Bottom = TotalQty * hBottomMultiplier
-    hBottomPcs = totalQuantity * hBottomMultiplier;
+    // MZ#3: Base H-Bottom = TotalQty * 1
+    baseHBottomQty = totalQuantity * 1;
+    hBottomLossQty = baseHBottomQty * (hBottomLossPercent / 100);
+    hBottomPcs = baseHBottomQty + hBottomLossQty;
   } else if (cfg.bottomStopFactor) {
     // MZ#5: Wire for B/S# 4 & 5 = TotalQty * 0.172 / 1000
     bottomStopKg = (totalQuantity * cfg.bottomStopFactor) / cfg.bottomStopDivisor;
@@ -265,6 +281,8 @@ function calculateMZGroup(variants, mzSize = '#3', globalLossPercent = 3.0, cust
     teethWireKg: totalTeethWireKg,
     topStopKg: topStopKg,
     bottomStopKg: bottomStopKg,
+    baseHBottomQty: baseHBottomQty,
+    hBottomLossQty: hBottomLossQty,
     hBottomPcs: hBottomPcs,
     sliderPcs: sliderPcs,
     sliderAdditionPcs: sliderAdditionPcs,
@@ -293,10 +311,26 @@ function calculateMZGroup(variants, mzSize = '#3', globalLossPercent = 3.0, cust
  */
 function calculateMZMaster(rawVariants, options = {}) {
   const lossPercent = options.lossPercent !== undefined ? Number(options.lossPercent) : 3.0;
-  const sliderAdditionPercent = options.sliderAdditionPercent !== undefined 
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                  (typeof require !== 'undefined' ? (function() { try { return require('../calculations.js'); } catch(e) { return null; } })() : null);
+
+  const totalVariantQty = (Array.isArray(rawVariants) ? rawVariants : []).reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  let sliderAdditionPercent = options.sliderAdditionPercent !== undefined && options.sliderAdditionPercent !== null
     ? Number(options.sliderAdditionPercent) 
-    : (options.sliderAddPercent !== undefined ? Number(options.sliderAddPercent) : null);
-  const mzParams = options.mzParams || {};
+    : (options.sliderAddPercent !== undefined && options.sliderAddPercent !== null ? Number(options.sliderAddPercent) : null);
+
+  if (sliderAdditionPercent === null) {
+    const getSliderDefault = calcEng && (calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage);
+    if (getSliderDefault) {
+      sliderAdditionPercent = getSliderDefault(totalVariantQty);
+    } else {
+      sliderAdditionPercent = (totalVariantQty <= 500 ? 8.0 : (totalVariantQty <= 2000 ? 4.0 : (totalVariantQty <= 5000 ? 2.5 : 1.5)));
+    }
+  }
+  const mzParams = Object.assign({}, options.mzParams || {});
+  if (options.hBottomLossPercent !== undefined && options.hBottomLossPercent !== null) {
+    mzParams.hBottomLossPercent = Number(options.hBottomLossPercent);
+  }
   const priceOverrides = options.priceOverrides || {};
   const customRows = Array.isArray(options.customRows) ? options.customRows : [];
 
@@ -305,15 +339,31 @@ function calculateMZMaster(rawVariants, options = {}) {
     return null;
   }
 
-  // Group variants by size (#3 or #5)
-  const sizeGroups = {
-    '#3': [],
-    '#5': []
-  };
-
+  // Group variants by class (MZC#3, MZC#4, MZC#5, MZO#5, etc.)
+  const classGroups = {};
   variants.forEach(v => {
     const size = normalizeMZSize(v.zipperSize || '#5');
-    sizeGroups[size].push(v);
+    const typeStr = String(v.zipperType || '').trim().toLowerCase();
+    const isClosed = typeStr === 'closed_end';
+    const isOpen = typeStr === 'open_end';
+
+    let classKey = `MZ${size}`;
+    if (isClosed) {
+      classKey = `MZC${size}`;
+    } else if (isOpen) {
+      classKey = `MZO${size}`;
+    } else {
+      classKey = `MZ${size} (${typeStr || 'Other'})`;
+    }
+
+    if (!classGroups[classKey]) {
+      classGroups[classKey] = {
+        classKey,
+        size,
+        variants: []
+      };
+    }
+    classGroups[classKey].variants.push(v);
   });
 
   const groupResults = {};
@@ -321,14 +371,38 @@ function calculateMZMaster(rawVariants, options = {}) {
   let primarySize = '#5';
   let maxQtyInSize = -1;
 
-  for (const [size, vars] of Object.entries(sizeGroups)) {
+  for (const [classKey, cGroup] of Object.entries(classGroups)) {
+    const vars = cGroup.variants;
     if (vars.length > 0) {
-      const res = calculateMZGroup(vars, size, lossPercent, sliderAdditionPercent, mzParams);
-      groupResults[size] = res;
+      let cLoss = 0;
+      if (options.classLossPercentages && options.classLossPercentages[classKey] !== undefined && options.classLossPercentages[classKey] !== null) {
+        cLoss = Number(options.classLossPercentages[classKey]);
+      } else {
+        // Try evaluating dynamic loss percentage
+        try {
+          const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                          (typeof require !== 'undefined' ? require('../calculations.js') : null);
+          if (calcEng && calcEng.isClassEligibleForDynamicLoss && calcEng.isClassEligibleForDynamicLoss(classKey)) {
+            const baseMtr = vars.reduce((sum, v) => sum + calcEng.calculateVariantBaseChainMtr(v, 'mz', mzParams), 0);
+            const dynLoss = calcEng.getDynamicLossPercentage(classKey, baseMtr);
+            if (dynLoss !== null && dynLoss !== undefined) cLoss = dynLoss;
+          } else if (options.lossPercent !== undefined && !classKey.includes('two_way')) {
+            cLoss = Number(options.lossPercent);
+          }
+        } catch (e) {
+          if (options.lossPercent !== undefined && !classKey.includes('two_way')) {
+            cLoss = Number(options.lossPercent);
+          }
+        }
+      }
+
+      const res = calculateMZGroup(vars, cGroup.size, cLoss, sliderAdditionPercent, mzParams);
+      res.classKey = classKey;
+      groupResults[classKey] = res;
       totalOrderQuantity += res.totalQuantity;
       if (res.totalQuantity > maxQtyInSize) {
         maxQtyInSize = res.totalQuantity;
-        primarySize = size;
+        primarySize = cGroup.size;
       }
     }
   }
@@ -337,9 +411,13 @@ function calculateMZMaster(rawVariants, options = {}) {
   const bomRows = [];
   let rowIndex = 1;
 
-  for (const [size, res] of Object.entries(groupResults)) {
+  // Track if there are multiple classes for the same size to ensure unique keys
+  const totalClassesCount = Object.keys(groupResults).length;
+
+  for (const [classKey, res] of Object.entries(groupResults)) {
     if (!res || res.totalQuantity === 0) continue;
 
+    const size = res.size;
     const defaultPrices = MZ_DEFAULT_PRICES[size] || MZ_DEFAULT_PRICES['#5'];
 
     // 1. TAPE KG (Main component)
@@ -348,13 +426,22 @@ function calculateMZMaster(rawVariants, options = {}) {
       : defaultPrices.tapeKg;
     const tapeCost = res.totalTapeKg * tapePrice;
 
+    // Use standard key mat_mz_tape_5 if single class for size, or class-specific if multiple
+    const tapeKey = (totalClassesCount === 1 || (totalClassesCount === 2 && Object.values(groupResults).filter(g => g.size === size).length === 1))
+      ? `mat_mz_tape_${size.replace('#', '')}`
+      : `mat_mz_tape_${classKey.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    const tapeMatName = totalClassesCount <= 2 && Object.values(groupResults).filter(g => g.size === size).length === 1
+      ? `MZ${size} Tape`
+      : `${classKey} Tape`;
+
     bomRows.push({
       index: rowIndex++,
-      key: `mat_mz_tape_${size.replace('#', '')}`,
+      key: tapeKey,
       component: 'TOTL TAPE KG',
       componentCategory: 'tape',
-      materialId: `mat_mz_tape_${size.replace('#', '')}`,
-      materialName: `MZ${size} Tape`,
+      materialId: tapeKey,
+      materialName: tapeMatName,
       specification: `Factory Tape Divisor: ${res.activeParams.tapeDivisor}, Loss: ${res.lossPercent}%`,
       unit: 'KG',
       unitPrice: tapePrice,
@@ -367,7 +454,7 @@ function calculateMZMaster(rawVariants, options = {}) {
       costPerZipper: totalOrderQuantity > 0 ? (tapeCost / totalOrderQuantity) : 0,
       formulaNote: `Formula: (Total Mtr + ${res.lossPercent}% Loss) / ${res.activeParams.tapeDivisor}`,
       calculationDetail: {
-        materialName: `MZ${size} Tape`,
+        materialName: tapeMatName,
         component: 'TOTL TAPE KG',
         category: 'mz',
         size: size,
@@ -524,6 +611,12 @@ function calculateMZMaster(rawVariants, options = {}) {
         : defaultPrices.hBottomPcs;
       const hBottomCost = res.hBottomPcs * hBottomPrice;
 
+      const mz3ZipperQty = res.totalQuantity || 0;
+      const baseHBottomQty = res.baseHBottomQty !== undefined ? res.baseHBottomQty : (mz3ZipperQty * 1);
+      const hBottomLossPercent = res.activeParams.hBottomLossPercent;
+      const hBottomLossQty = res.hBottomLossQty !== undefined ? res.hBottomLossQty : (baseHBottomQty * (hBottomLossPercent / 100));
+      const finalHBottomQty = res.hBottomPcs;
+
       bomRows.push({
         index: rowIndex++,
         key: `mat_mz_h_bottom_${size.replace('#', '')}`,
@@ -531,40 +624,51 @@ function calculateMZMaster(rawVariants, options = {}) {
         componentCategory: 'stop',
         materialId: `mat_mz_h_bottom_${size.replace('#', '')}`,
         materialName: 'H-Bottom Stop (MZ#3)',
-        specification: `Addition: +${res.activeParams.hBottomLossPercent}% (${res.activeParams.hBottomMultiplier})`,
+        specification: `Addition: +${hBottomLossPercent}% (${res.activeParams.hBottomMultiplier})`,
         unit: 'Pcs',
         unitPrice: hBottomPrice,
         wastagePercent: 0,
-        totalQuantity: res.hBottomPcs,
+        totalQuantity: finalHBottomQty,
         baseMaterialCost: hBottomCost,
         wastageCost: 0,
         totalMaterialCost: hBottomCost,
-        avgQtyPerZipper: totalOrderQuantity > 0 ? (res.hBottomPcs / totalOrderQuantity) : 0,
+        avgQtyPerZipper: totalOrderQuantity > 0 ? (finalHBottomQty / totalOrderQuantity) : 0,
         costPerZipper: totalOrderQuantity > 0 ? (hBottomCost / totalOrderQuantity) : 0,
-        formulaNote: `Formula: Qty × ${res.activeParams.hBottomMultiplier} (+${res.activeParams.hBottomLossPercent}%)`,
+        formulaNote: `Formula: Qty × ${res.activeParams.hBottomMultiplier} (+${hBottomLossPercent}%)`,
         calculationDetail: {
           materialName: 'H-Bottom Stop (MZ#3)',
           component: 'H-BOTTOM',
           category: 'mz',
           size: '#3',
           unit: 'Pcs',
-          finalQuantity: res.hBottomPcs,
-          displayQuantity: `${Math.round(res.hBottomPcs).toLocaleString()} Pcs`,
-          baseFormula: `H-Bottom Stop Requirement (Pcs) = Total Order Quantity × (1 + ${res.activeParams.hBottomLossPercent}% Loss Addition)\n                                = Total Order Quantity × ${res.activeParams.hBottomMultiplier}`,
+          zipperQuantity: mz3ZipperQty,
+          baseQuantity: baseHBottomQty,
+          lossPercent: hBottomLossPercent,
+          lossQuantity: hBottomLossQty,
+          finalQuantity: finalHBottomQty,
+          displayQuantity: `${Math.round(finalHBottomQty).toLocaleString()} Pcs`,
+          baseFormula: `Base H-Bottom Quantity = MZ#3 Zipper Quantity × 1\nLoss Quantity = Base H-Bottom Quantity × ${hBottomLossPercent}%\nFinal H-Bottom Quantity = Base H-Bottom Quantity + Loss Quantity\n                        = Base H-Bottom Quantity × (1 + ${hBottomLossPercent}%)`,
           steps: [
             {
               stepNumber: 1,
-              title: 'Total Order Quantity',
-              explanation: 'Sum of all variant quantities across this category group:',
-              formula: `Total Order Quantity = ${(res.totalQuantity || 0).toLocaleString()} pcs`,
-              result: `${(res.totalQuantity || 0).toLocaleString()} pcs`
+              title: 'MZ#3 Zipper Quantity & Base H-Bottom',
+              explanation: 'Base H-Bottom quantity is derived from MZ#3 zipper quantity multiplied by 1:',
+              formula: `MZ#3 Zipper Quantity: ${mz3ZipperQty.toLocaleString('en-US')} pcs\nBase H-Bottom: ${mz3ZipperQty.toLocaleString('en-US')} × 1 = ${baseHBottomQty.toLocaleString('en-US')} Pcs`,
+              result: `${baseHBottomQty.toLocaleString('en-US')} Pcs`
             },
             {
               stepNumber: 2,
-              title: `H-Bottom Requirement with +${res.activeParams.hBottomLossPercent}% Loss Addition`,
-              explanation: `Applies factory loss multiplier of ${res.activeParams.hBottomMultiplier} (+${res.activeParams.hBottomLossPercent}%):`,
-              formula: `Order Quantity: ${(res.totalQuantity || 0).toLocaleString()} pcs × Loss Multiplier: ${res.activeParams.hBottomMultiplier} (+${res.activeParams.hBottomLossPercent}%) = ${Math.round(res.hBottomPcs).toLocaleString()} Pcs`,
-              result: `${Math.round(res.hBottomPcs).toLocaleString()} Pcs`
+              title: `Dynamic H-Bottom Loss (+${hBottomLossPercent}%)`,
+              explanation: `Loss rate applied dynamically based on MZ#3 zipper quantity (${mz3ZipperQty.toLocaleString('en-US')} pcs):`,
+              formula: `Base H-Bottom: ${baseHBottomQty.toLocaleString('en-US')} Pcs × Loss Rate: ${hBottomLossPercent}% = Loss Quantity: ${hBottomLossQty.toFixed(2)} Pcs`,
+              result: `${hBottomLossQty.toFixed(2)} Pcs`
+            },
+            {
+              stepNumber: 3,
+              title: 'Final H-Bottom Quantity (Pcs)',
+              explanation: 'Final H-Bottom quantity equals Base H-Bottom quantity plus Loss Quantity:',
+              formula: `Final H-Bottom: ${baseHBottomQty.toLocaleString('en-US')} + ${hBottomLossQty.toFixed(2)} = ${finalHBottomQty.toFixed(2)} Pcs\nBOM Rounded Requirement: ${Math.round(finalHBottomQty).toLocaleString('en-US')} Pcs`,
+              result: `${Math.round(finalHBottomQty).toLocaleString('en-US')} Pcs`
             }
           ]
         }
@@ -629,7 +733,7 @@ function calculateMZMaster(rawVariants, options = {}) {
       : defaultPrices.slider;
     const sliderCost = res.sliderPcs * sliderPrice;
     const sliderPercent = res.sliderAdditionPercent !== undefined ? res.sliderAdditionPercent : 1.5;
-    const isSliderCustom = res.isSliderCustom || (Math.abs(sliderPercent - 1.5) > 0.0001);
+    const isSliderCustom = res.isSliderCustom !== undefined ? Boolean(res.isSliderCustom) : false;
     const sliderMultiplier = res.sliderMultiplier || (1 + sliderPercent / 100);
     const sliderAdditionPcs = res.sliderAdditionPcs !== undefined ? res.sliderAdditionPcs : (totalOrderQuantity * (sliderPercent / 100));
     const customTag = isSliderCustom ? ' (Custom)' : '';
@@ -678,6 +782,90 @@ function calculateMZMaster(rawVariants, options = {}) {
             explanation: `Applies the ${sliderPercent}% factory slider allowance multiplier (${Number(sliderMultiplier.toFixed(4))}):`,
             formula: `Order Quantity: ${(res.totalQuantity || 0).toLocaleString()} pcs × Slider Addition Factor: ${Number(sliderMultiplier.toFixed(4))} (+${sliderPercent}%${customTag}) = ${res.sliderPcs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs\n[Slider Addition: ${(res.totalQuantity || 0).toLocaleString()} pcs × ${sliderPercent}% = ${sliderAdditionPcs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pcs]`,
             result: `${res.sliderPcs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+          }
+        ]
+      }
+    });
+  }
+
+  // Pin Box calculation for Open-End / Two-Way variants
+  const pinBoxPerZipper = options.pinBoxPerZipper !== undefined ? Number(options.pinBoxPerZipper) : 1;
+  const relevantPinBoxQty = options.relevantPinBoxQuantity !== undefined 
+    ? Number(options.relevantPinBoxQuantity) 
+    : (calcEng && calcEng.getRelevantPinBoxQuantity ? calcEng.getRelevantPinBoxQuantity(variants) : 0);
+
+  if (relevantPinBoxQty > 0 && pinBoxPerZipper > 0) {
+    const basePinBox = relevantPinBoxQty * pinBoxPerZipper;
+    const pinBoxLossPercent = (options.pinBoxLossPercent !== undefined && options.pinBoxLossPercent !== null)
+      ? Number(options.pinBoxLossPercent)
+      : ((calcEng && calcEng.getPinBoxDynamicLossPercentage)
+        ? calcEng.getPinBoxDynamicLossPercentage(relevantPinBoxQty)
+        : (relevantPinBoxQty <= 500 ? 8.0 : (relevantPinBoxQty <= 2000 ? 4.0 : 2.5)));
+    const pinBoxLossQty = basePinBox * (pinBoxLossPercent / 100);
+    const finalPinBoxQty = basePinBox + pinBoxLossQty;
+    const pinBoxPrice = priceOverrides['pinBox'] !== undefined 
+      ? Number(priceOverrides['pinBox']) 
+      : (priceOverrides['pin_box'] !== undefined ? Number(priceOverrides['pin_box']) : 0);
+    const pinBoxCost = finalPinBoxQty * pinBoxPrice;
+
+    bomRows.push({
+      index: rowIndex++,
+      id: 'mz_bom_pin_box',
+      key: 'mat_mz_pin_box',
+      component: 'PIN BOX',
+      componentCategory: 'stop',
+      materialId: 'mat_mz_pin_box',
+      materialName: 'Pin Box',
+      specification: `Pin Box (${pinBoxPerZipper}/zipper, Loss ${pinBoxLossPercent}%)`,
+      unit: 'Pcs',
+      totalQuantity: finalPinBoxQty,
+      avgQtyPerZipper: totalOrderQuantity > 0 ? (finalPinBoxQty / totalOrderQuantity) : 0,
+      unitPrice: pinBoxPrice,
+      baseMaterialCost: pinBoxCost,
+      wastageCost: 0,
+      totalMaterialCost: pinBoxCost,
+      wastagePercent: 0,
+      isLengthDependent: false,
+      isFactoryStandard: true,
+      allowDelete: false,
+      subtypeKey: (variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('5')) ? '#5' : '#3',
+      subtypeName: `MZ${(variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('5')) ? '#5' : '#3'}`,
+      subtypeLabel: `MZ ${(variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('5')) ? '#5' : '#3'}`,
+      calculationDetail: {
+        materialName: 'Pin Box',
+        component: 'PIN BOX',
+        category: 'mz',
+        size: (variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('5')) ? '#5' : '#3',
+        unit: 'Pcs',
+        relevantZipperQuantity: relevantPinBoxQty,
+        pinBoxPerZipper: pinBoxPerZipper,
+        baseQuantity: basePinBox,
+        lossPercent: pinBoxLossPercent,
+        lossQuantity: pinBoxLossQty,
+        finalQuantity: finalPinBoxQty,
+        displayQuantity: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+        baseFormula: `Final Pin Box (Pcs) = Base Pin Box × (1 + Loss %)\n                   = (Relevant Zipper Quantity × Pin Box / Zipper) × (1 + ${pinBoxLossPercent}% Loss)`,
+        steps: [
+          {
+            stepNumber: 1,
+            title: 'Relevant Zipper Quantity & Base Pin Box',
+            explanation: 'Base Pin Box is derived from Relevant Zipper Quantity (Open-End & Two-Way zippers) multiplied by Pin Box per Zipper:',
+            formula: `Relevant Zipper Quantity: ${relevantPinBoxQty.toLocaleString('en-US')} pcs × Pin Box / Zipper: ${pinBoxPerZipper} = Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs`,
+            result: `${basePinBox.toLocaleString('en-US')} Pcs`
+          },
+          {
+            stepNumber: 2,
+            title: `Applied Factory Loss (+${pinBoxLossPercent}%)`,
+            explanation: `Factory loss rate of ${pinBoxLossPercent}% applied based on relevant order volume (${relevantPinBoxQty.toLocaleString('en-US')} pcs):`,
+            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs × Loss Rate: ${pinBoxLossPercent}% = Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+            result: `${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+          },
+          {
+            stepNumber: 3,
+            title: 'Final Pin Box Requirement (Pcs)',
+            explanation: 'Final Pin Box quantity equals Base Pin Box plus Loss Quantity:',
+            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs + Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs = ${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+            result: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
           }
         ]
       }
@@ -788,10 +976,11 @@ function buildMZFormulaSteps(groupResults, lossPercent) {
       subtotalValue: `${res.chainConsumptionMtr.toFixed(2)} Mtr (Display: ${res.display.chainConsumptionMtr} Mtr)`
     });
 
+    const effectiveLoss = res.lossPercent !== undefined ? res.lossPercent : lossPercent;
     steps.push({
       title: `Step 2: Total Tape Requirement (${size})`,
-      explanation: `Apply ${lossPercent}% tape loss and divide by the factory tape factor (${res.constants.tapeDivisor}).`,
-      formula: `[${res.chainConsumptionMtr.toFixed(2)} Mtr × (1 + ${lossPercent}/100)] / ${res.constants.tapeDivisor} = ${res.totalTapeKg.toFixed(4)} KG`,
+      explanation: `Apply ${effectiveLoss}% tape loss and divide by the factory tape factor (${res.constants.tapeDivisor}).`,
+      formula: `[${res.chainConsumptionMtr.toFixed(2)} Mtr × (1 + ${effectiveLoss}/100)] / ${res.constants.tapeDivisor} = ${res.totalTapeKg.toFixed(4)} KG`,
       result: `${res.display.totalTapeKg} KG Tape`
     });
 
@@ -816,8 +1005,8 @@ function buildMZFormulaSteps(groupResults, lossPercent) {
     if (res.constants.hasHBottom && res.hBottomPcs > 0) {
       steps.push({
         title: `Step 5: H-Bottom Stop (${size})`,
-        explanation: `H-Bottom stop calculated with factory +2.5% loss factor.`,
-        formula: `${res.totalQuantity.toLocaleString()} pcs × 1.025 = ${res.hBottomPcs.toFixed(2)} pcs`,
+        explanation: `H-Bottom stop calculated with dynamic +${res.activeParams.hBottomLossPercent}% loss factor.`,
+        formula: `${res.totalQuantity.toLocaleString()} pcs × ${res.activeParams.hBottomMultiplier} (+${res.activeParams.hBottomLossPercent}%) = ${res.hBottomPcs.toFixed(2)} pcs`,
         result: `${res.display.hBottomPcs} Pcs`
       });
     } else if (res.bottomStopKg > 0) {

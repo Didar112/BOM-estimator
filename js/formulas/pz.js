@@ -138,7 +138,15 @@ function calculatePZGroup(variants, pzSize = '#5', globalLossPercent = 3.0, cust
   const cfg = PZ_CONSTANTS[sizeKey];
   const lossPercent = Math.max(0, Number(globalLossPercent) || 0);
 
-  const defaultSliderPercent = cfg.sliderAdditionPercent || 1.5;
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                  (typeof require !== 'undefined' ? (function() { try { return require('../calculations.js'); } catch(e) { return null; } })() : null);
+
+  const groupQty = (Array.isArray(variants) ? variants : []).reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  const getSliderDefault = calcEng && (calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage);
+  const defaultSliderPercent = getSliderDefault
+    ? getSliderDefault(groupQty)
+    : (groupQty <= 500 ? 8.0 : (groupQty <= 2000 ? 4.0 : (groupQty <= 5000 ? 2.5 : 1.5)));
+
   const sliderAdditionPercent = (customSliderAdditionPercent !== null && customSliderAdditionPercent !== undefined && !isNaN(customSliderAdditionPercent))
     ? Math.max(0, Number(customSliderAdditionPercent))
     : defaultSliderPercent;
@@ -295,9 +303,22 @@ function calculatePZMaster(variants = [], options = {}) {
     ? Math.max(0, Number(options.lossPercent) || 0)
     : 3.0;
 
-  const customSliderAdditionPercent = options.sliderAdditionPercent !== undefined 
-    ? options.sliderAdditionPercent 
-    : null;
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                  (typeof require !== 'undefined' ? (function() { try { return require('../calculations.js'); } catch(e) { return null; } })() : null);
+
+  const totalVariantQty = (Array.isArray(variants) ? variants : []).reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  let customSliderAdditionPercent = options.sliderAdditionPercent !== undefined && options.sliderAdditionPercent !== null
+    ? Number(options.sliderAdditionPercent) 
+    : (options.sliderAddPercent !== undefined && options.sliderAddPercent !== null ? Number(options.sliderAddPercent) : null);
+
+  if (customSliderAdditionPercent === null) {
+    const getSliderDefault = calcEng && (calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage);
+    if (getSliderDefault) {
+      customSliderAdditionPercent = getSliderDefault(totalVariantQty);
+    } else {
+      customSliderAdditionPercent = (totalVariantQty <= 500 ? 8.0 : (totalVariantQty <= 2000 ? 4.0 : (totalVariantQty <= 5000 ? 2.5 : 1.5)));
+    }
+  }
 
   const pzParams = options.pzParams || {};
   const priceOverrides = options.priceOverrides || {};
@@ -330,7 +351,49 @@ function calculatePZMaster(variants = [], options = {}) {
   Object.keys(sizeGroups).forEach(sizeKey => {
     const groupVars = sizeGroups[sizeKey];
     if (groupVars.length > 0) {
-      const res = calculatePZGroup(groupVars, sizeKey, lossPercent, customSliderAdditionPercent, pzParams);
+      let groupLoss = 0;
+
+      // PZ#8 must NOT receive dynamic loss and must remain 0 unless manually overridden
+      if (sizeKey === '#8') {
+        if (options.classLossPercentages) {
+          const overrideVal = options.classLossPercentages['PZC#8'] !== undefined ? options.classLossPercentages['PZC#8'] :
+                              (options.classLossPercentages['PZO#8'] !== undefined ? options.classLossPercentages['PZO#8'] :
+                              (options.classLossPercentages['PZ#8'] !== undefined ? options.classLossPercentages['PZ#8'] : null));
+          if (overrideVal !== null && !isNaN(Number(overrideVal))) {
+            groupLoss = Number(overrideVal);
+          }
+        }
+      } else {
+        // Size #3 or #5: identify if closed or open
+        const firstVar = groupVars[0];
+        const typeStr = String((firstVar && firstVar.zipperType) || '').trim().toLowerCase();
+        const isClosed = typeStr === 'closed_end';
+        const isOpen = typeStr === 'open_end';
+        const classKey = isClosed ? `PZC${sizeKey}` : (isOpen ? `PZO${sizeKey}` : `PZ${sizeKey}`);
+
+        if (options.classLossPercentages && options.classLossPercentages[classKey] !== undefined && options.classLossPercentages[classKey] !== null) {
+          groupLoss = Number(options.classLossPercentages[classKey]);
+        } else if (typeStr !== 'two_way' && (isClosed || isOpen)) {
+          // Dynamic calculation if engine available
+          try {
+            const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine :
+                            (typeof require !== 'undefined' ? require('../calculations.js') : null);
+            if (calcEng && calcEng.isClassEligibleForDynamicLoss && calcEng.isClassEligibleForDynamicLoss(classKey)) {
+              const baseMtr = groupVars.reduce((sum, v) => sum + calcEng.calculateVariantBaseChainMtr(v, 'pz', pzParams), 0);
+              const dynLoss = calcEng.getDynamicLossPercentage(classKey, baseMtr);
+              if (dynLoss !== null && dynLoss !== undefined) groupLoss = dynLoss;
+            } else if (options.lossPercent !== undefined) {
+              groupLoss = Number(options.lossPercent);
+            }
+          } catch (e) {
+            if (options.lossPercent !== undefined) groupLoss = Number(options.lossPercent);
+          }
+        } else if (options.lossPercent !== undefined && typeStr !== 'two_way') {
+          groupLoss = Number(options.lossPercent);
+        }
+      }
+
+      const res = calculatePZGroup(groupVars, sizeKey, groupLoss, customSliderAdditionPercent, pzParams);
       groupResults.push(res);
 
       masterTotalQty += res.totalQuantity;
@@ -357,6 +420,89 @@ function calculatePZMaster(variants = [], options = {}) {
       rows.forEach(r => allBOMRows.push(r));
     }
   });
+
+  // Category-level Pin Box requirement for open-end / two-way zippers
+  const pinBoxPerZipper = options.pinBoxPerZipper !== undefined ? Number(options.pinBoxPerZipper) : 1;
+  const relevantPinBoxQty = options.relevantPinBoxQuantity !== undefined 
+    ? Number(options.relevantPinBoxQuantity) 
+    : (calcEng && calcEng.getRelevantPinBoxQuantity ? calcEng.getRelevantPinBoxQuantity(variants) : 0);
+
+  if (relevantPinBoxQty > 0 && pinBoxPerZipper > 0) {
+    const basePinBox = relevantPinBoxQty * pinBoxPerZipper;
+    const pinBoxLossPercent = (options.pinBoxLossPercent !== undefined && options.pinBoxLossPercent !== null)
+      ? Number(options.pinBoxLossPercent)
+      : ((calcEng && calcEng.getPinBoxDynamicLossPercentage)
+        ? calcEng.getPinBoxDynamicLossPercentage(relevantPinBoxQty)
+        : (relevantPinBoxQty <= 500 ? 8.0 : (relevantPinBoxQty <= 2000 ? 4.0 : 2.5)));
+    const pinBoxLossQty = basePinBox * (pinBoxLossPercent / 100);
+    const finalPinBoxQty = basePinBox + pinBoxLossQty;
+    const pinBoxPrice = priceOverrides['pinBox'] !== undefined 
+      ? Number(priceOverrides['pinBox']) 
+      : (priceOverrides['pin_box'] !== undefined ? Number(priceOverrides['pin_box']) : 0);
+    const pinBoxCost = finalPinBoxQty * pinBoxPrice;
+
+    allBOMRows.push({
+      id: 'pz_bom_pin_box',
+      key: 'mat_pz_pin_box',
+      component: 'PIN BOX',
+      componentCategory: 'stop',
+      materialId: 'mat_pz_pin_box',
+      materialName: 'Pin Box',
+      specification: `Pin Box (${pinBoxPerZipper}/zipper, Loss ${pinBoxLossPercent}%)`,
+      unit: 'Pcs',
+      totalQuantity: finalPinBoxQty,
+      avgQtyPerZipper: masterTotalQty > 0 ? (finalPinBoxQty / masterTotalQty) : 0,
+      unitPrice: pinBoxPrice,
+      baseMaterialCost: pinBoxCost,
+      wastageCost: 0,
+      totalMaterialCost: pinBoxCost,
+      wastagePercent: 0,
+      isLengthDependent: false,
+      isFactoryStandard: true,
+      allowDelete: false,
+      subtypeKey: (variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('8')) ? '#8' : ((variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('3')) ? '#3' : '#5'),
+      subtypeName: `PZ${(variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('8')) ? '#8' : ((variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('3')) ? '#3' : '#5')}`,
+      subtypeLabel: `PZ ${(variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('8')) ? '#8' : ((variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('3')) ? '#3' : '#5')}`,
+      calculationDetail: {
+        materialName: 'Pin Box',
+        component: 'PIN BOX',
+        category: 'pz',
+        size: (variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('8')) ? '#8' : ((variants && variants.length > 0 && variants[0].zipperSize && variants[0].zipperSize.includes('3')) ? '#3' : '#5'),
+        unit: 'Pcs',
+        relevantZipperQuantity: relevantPinBoxQty,
+        pinBoxPerZipper: pinBoxPerZipper,
+        baseQuantity: basePinBox,
+        lossPercent: pinBoxLossPercent,
+        lossQuantity: pinBoxLossQty,
+        finalQuantity: finalPinBoxQty,
+        displayQuantity: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+        baseFormula: `Final Pin Box (Pcs) = Base Pin Box × (1 + Loss %)\n                   = (Relevant Zipper Quantity × Pin Box / Zipper) × (1 + ${pinBoxLossPercent}% Loss)`,
+        steps: [
+          {
+            stepNumber: 1,
+            title: 'Relevant Zipper Quantity & Base Pin Box',
+            explanation: 'Base Pin Box is derived from Relevant Zipper Quantity (Open-End & Two-Way zippers) multiplied by Pin Box per Zipper:',
+            formula: `Relevant Zipper Quantity: ${relevantPinBoxQty.toLocaleString('en-US')} pcs × Pin Box / Zipper: ${pinBoxPerZipper} = Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs`,
+            result: `${basePinBox.toLocaleString('en-US')} Pcs`
+          },
+          {
+            stepNumber: 2,
+            title: `Applied Factory Loss (+${pinBoxLossPercent}%)`,
+            explanation: `Factory loss rate of ${pinBoxLossPercent}% applied based on relevant order volume (${relevantPinBoxQty.toLocaleString('en-US')} pcs):`,
+            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs × Loss Rate: ${pinBoxLossPercent}% = Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+            result: `${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+          },
+          {
+            stepNumber: 3,
+            title: 'Final Pin Box Requirement (Pcs)',
+            explanation: 'Final Pin Box quantity equals Base Pin Box plus Loss Quantity:',
+            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs + Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs = ${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
+            result: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+          }
+        ]
+      }
+    });
+  }
 
   const totalBaseMaterialCost = allBOMRows.reduce((sum, r) => sum + (r.baseMaterialCost || 0), 0);
   const totalWastageCost = allBOMRows.reduce((sum, r) => sum + (r.wastageCost || 0), 0);
@@ -592,7 +738,7 @@ function buildPZConsolidatedBOMRows(pzCalcResult, existingCustomRows = [], price
   const sliderQty = pzCalcResult.sliderQuantity || 0;
   const sliderPrice = getPrice(`slider_${sizeNum}`, defaultPrices.slider);
   const sliderPercent = pzCalcResult.sliderAdditionPercent !== undefined ? pzCalcResult.sliderAdditionPercent : 1.5;
-  const isSliderCustom = pzCalcResult.isSliderCustom || (Math.abs(sliderPercent - 1.5) > 0.0001);
+  const isSliderCustom = pzCalcResult.isSliderCustom !== undefined ? Boolean(pzCalcResult.isSliderCustom) : false;
   const customTag = isSliderCustom ? ' (Custom)' : '';
   const sliderComp = `SLIDER (+${sliderPercent}% ADD.)`;
 

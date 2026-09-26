@@ -33,7 +33,7 @@ const czResult = cz.calculateCZMaster([
 ], { lossPercent: 3.0 });
 
 const czRows = czResult.materials.processedRows;
-assert('CZ produced 7 factory BOM rows', czRows.length === 7);
+assert('CZ produced 8 factory BOM rows', czRows.length === 8);
 
 czRows.forEach(r => {
   assert(`Row "${r.materialName || r.component}" has calculationDetail`, r.calculationDetail && Array.isArray(r.calculationDetail.steps) && r.calculationDetail.steps.length > 0);

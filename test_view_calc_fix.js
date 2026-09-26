@@ -132,6 +132,7 @@ global.formatNumberPrecision = function(val, decimals = 4) {
 // Load app.js functions into environment
 const appJsCode = fs.readFileSync(path.join(__dirname, 'js', 'app.js'), 'utf8');
 
+eval(appJsCode.substring(appJsCode.indexOf('function renderGroupLossMeta('), appJsCode.indexOf('function buildClassLossSectionHTML(')));
 eval(appJsCode.substring(appJsCode.indexOf('function findActiveMaterial'), appJsCode.indexOf('function handleAddCustomMaterialSubmit')));
 
 // Setup Multi-Group, Mixed-Variant Estimate

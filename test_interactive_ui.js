@@ -50,7 +50,7 @@ const result = calcEngine.calculateFullEstimate(appState.currentEstimate);
 appState.lastCalculation = result;
 
 const rows = result.aggregatedMaterials.processedRows;
-assert('BOM has 7 processed rows', rows.length === 7);
+assert('BOM has 8 processed rows', rows.length === 8);
 
 // Verify default active material key assignment
 if (!appState.selectedMaterialKey && rows.length > 0) {
@@ -79,11 +79,11 @@ appState.selectedMaterialKey = resinRow.key;
 assert('Resin Row has calculationDetail', resinRow && resinRow.calculationDetail);
 assert('Resin Step 2 shows Divisor 900 and 10.42 KG', resinRow.calculationDetail.steps[1].formula.includes('900') && resinRow.calculationDetail.steps[1].result.includes('10.42'));
 
-// Simulate user clicking "View Calculation" for Ultrasonic U-Top
-const utopRow = rows.find(r => r.component === 'ULTRASONIC U-TOP');
+// Simulate user clicking "View Calculation" for U-Top
+const utopRow = rows.find(r => r.component === 'U-TOP');
 appState.selectedMaterialKey = utopRow.key;
 assert('U-Top Row has calculationDetail', utopRow && utopRow.calculationDetail);
-assert('U-Top Step 2 shows Factor 0.074 and 0.69 KG', utopRow.calculationDetail.steps[1].formula.includes('0.074') && utopRow.calculationDetail.steps[1].result.includes('0.69'));
+assert('U-Top Step 2 shows 2 pcs/zipper and 18,760 Pcs', utopRow.calculationDetail.steps[1].formula.includes('2 pcs/zipper') && utopRow.calculationDetail.steps[1].result.includes('18,760 Pcs'));
 
 // --- Test 2: Multi-Group Merging Simulation ---
 appState.currentEstimate.categoryGroups.push({

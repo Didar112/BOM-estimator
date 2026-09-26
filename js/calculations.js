@@ -42,6 +42,33 @@ function formatQuantity(value, maxDecimals = 4) {
 }
 
 /**
+ * Helper to identify if a row or material or unit corresponds to Slider
+ * @param {Object|string} rowOrUnit 
+ * @returns {boolean}
+ */
+function isSliderRow(rowOrUnit) {
+  if (!rowOrUnit) return false;
+  if (typeof rowOrUnit === 'string') {
+    return rowOrUnit.toLowerCase().includes('slider');
+  }
+  if (typeof rowOrUnit !== 'object') return false;
+
+  const comp = String(rowOrUnit.component || '').toLowerCase();
+  const name = String(rowOrUnit.materialName || rowOrUnit.name || '').toLowerCase();
+  const matId = String(rowOrUnit.materialId || rowOrUnit.key || rowOrUnit.id || '').toLowerCase();
+  const cat = String(rowOrUnit.componentCategory || rowOrUnit.category || '').toLowerCase();
+  const calcDetailName = String((rowOrUnit.calculationDetail && rowOrUnit.calculationDetail.materialName) || '').toLowerCase();
+  const calcDetailComp = String((rowOrUnit.calculationDetail && rowOrUnit.calculationDetail.component) || '').toLowerCase();
+
+  return cat === 'slider' ||
+         comp.includes('slider') ||
+         name.includes('slider') ||
+         matId.includes('slider') ||
+         calcDetailName.includes('slider') ||
+         calcDetailComp.includes('slider');
+}
+
+/**
  * Determine the exact display decimal precision for a BOM material based on Excel rules
  * @param {Object|string} rowOrUnit - BOM row object or unit string
  * @returns {number}
@@ -75,18 +102,23 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 0;
   }
 
-  // 3. Piece/Pcs count (e.g. Sliders)
-  if (unit === 'pcs' || unit === 'pc') {
-    if (Number.isInteger(val)) return 0;
-    return 2; // Keep 2 decimal places for fractional slider additions
+  // 3. Slider count (unit: Pcs) -> Always whole pieces (0 decimals; rounded up to next integer if fraction)
+  if (isSliderRow(rowOrUnit)) {
+    return 0;
   }
 
-  // 4. PZ Tape-Wise resin (Excel uses 4 decimals, e.g. 20.7727 KG)
+  // 4. Piece/Pcs count (e.g. Pin Box)
+  if (unit === 'pcs' || unit === 'pc' || comp.includes('pin box') || name.includes('pin box') || matId.includes('pin_box')) {
+    if (Number.isInteger(val)) return 0;
+    return 2; // Keep 2 decimal places for fractional pin box additions
+  }
+
+  // 5. PZ Tape-Wise resin (Excel uses 4 decimals, e.g. 20.7727 KG)
   if (matId.includes('tape_wise') || matId.includes('tape_resin') || comp.includes('tape wise') || name.includes('tape wise')) {
     return 4;
   }
 
-  // 5. PZO and PZC molded element resin (Excel uses 3 decimals, e.g. 5.923 KG, 3.863 KG)
+  // 6. PZO and PZC molded element resin (Excel uses 3 decimals, e.g. 5.923 KG, 3.863 KG)
   if (
     matId.includes('pzo') || matId.includes('pzc') ||
     comp.startsWith('pzo') || comp.startsWith('pzc') ||
@@ -95,7 +127,7 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 3;
   }
 
-  // 6. Chain Consumption / Required Chain Length (unit: Mtr) -> nearest whole number in BOM display (0 decimals)
+  // 7. Chain Consumption / Required Chain Length (unit: Mtr) -> nearest whole number in BOM display (0 decimals)
   if (
     matId.includes('chain_consumption') ||
     comp.includes('chain consumption') ||
@@ -109,7 +141,7 @@ function getMaterialDisplayDecimals(rowOrUnit) {
     return 0;
   }
 
-  // 7. Standard Tape KG, Stop Wire KG, Teeth Wire KG, Element Resin KG -> 2 decimals in Excel
+  // 8. Standard Tape KG, Stop Wire KG, Teeth Wire KG, Element Resin KG -> 2 decimals in Excel
   return 2;
 }
 
@@ -145,6 +177,11 @@ function formatBOMQuantity(rowOrQty, unit = '', contextRow = null) {
     row = contextRow || { totalQuantity: val, unit: unit };
   }
 
+  // Sliders are physical whole pieces -> display as the next integer if value comes as fraction
+  if (isSliderRow(row) || isSliderRow(unit) || (contextRow && isSliderRow(contextRow))) {
+    return Math.ceil(val).toLocaleString('en-US');
+  }
+
   const decimals = getMaterialDisplayDecimals(row);
 
   if (decimals === 0) {
@@ -157,6 +194,433 @@ function formatBOMQuantity(rowOrQty, unit = '', contextRow = null) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+}
+
+// ==================== DYNAMIC CLASS LOSS PERCENTAGE ENGINE ====================
+
+/**
+ * Identify the canonical zipper class for a variant based on category, size, and type.
+ * Only 'closed_end' and 'open_end' are recognized for MZ/PZ dynamic loss.
+ * Dummy/generated types such as 'two_way' are explicitly distinguished and do not qualify as open/closed.
+ * 
+ * @param {Object} variant - Variant object with zipperSize, zipperType, etc.
+ * @param {string} category - Category identifier ('cz', 'mz', 'pz', 'wire')
+ * @returns {string} Canonical class name (e.g. 'CZ#3', 'CZ#5', 'MZC#3', 'MZO#5', 'PZC#3', 'PZO#5', etc.)
+ */
+function getVariantZipperClass(variantOrCategory, categoryOrType, maybeSize) {
+  let cat = '';
+  let sizeStr = '';
+  let typeStr = '';
+
+  if (typeof variantOrCategory === 'object' && variantOrCategory !== null) {
+    cat = String(categoryOrType || variantOrCategory.category || '').toLowerCase().trim();
+    sizeStr = String(variantOrCategory.zipperSize || '').trim();
+    typeStr = String(variantOrCategory.zipperType || '').trim().toLowerCase();
+  } else {
+    // Called as (category, zipperType, zipperSize)
+    cat = String(variantOrCategory || '').toLowerCase().trim();
+    typeStr = String(categoryOrType || '').trim().toLowerCase();
+    sizeStr = String(maybeSize || '').trim();
+  }
+
+  if (cat === 'cz' || cat === 'nylon') {
+    const isClosed = typeStr === 'closed_end';
+    const isOpen = typeStr === 'open_end';
+    const sizeNum = sizeStr.includes('3') ? '#3' : '#5';
+
+    if (isClosed) {
+      return `CZC${sizeNum}`; // CZC#3, CZC#5
+    } else if (isOpen) {
+      return `CZO${sizeNum}`; // CZO#3, CZO#5
+    } else {
+      return `CZ${sizeNum}`;
+    }
+  }
+
+  if (cat === 'mz' || cat === 'metal') {
+    const isClosed = typeStr === 'closed_end';
+    const isOpen = typeStr === 'open_end';
+    const sizeNum = sizeStr.includes('3') ? '#3' : (sizeStr.includes('4') ? '#4' : '#5');
+
+    if (isClosed) {
+      return `MZC${sizeNum}`; // MZC#3, MZC#4, MZC#5
+    } else if (isOpen) {
+      return `MZO${sizeNum}`; // MZO#5, MZO#3, MZO#4
+    } else {
+      // Dummy or other zipper types like 'two_way', 'continuous', etc.
+      return `MZ${sizeNum} (${typeStr || 'Other'})`;
+    }
+  }
+
+  if (cat === 'pz' || cat === 'plastic') {
+    const isClosed = typeStr === 'closed_end';
+    const isOpen = typeStr === 'open_end';
+    const sizeNum = sizeStr.includes('3') ? '#3' : (sizeStr.includes('8') ? '#8' : '#5');
+
+    if (isClosed) {
+      return `PZC${sizeNum}`; // PZC#3, PZC#5, PZC#8
+    } else if (isOpen) {
+      return `PZO${sizeNum}`; // PZO#3, PZO#5, PZO#8
+    } else {
+      // Dummy or other zipper types like 'two_way', 'continuous', etc.
+      return `PZ${sizeNum} (${typeStr || 'Other'})`;
+    }
+  }
+
+  if (cat === 'wire') {
+    if (sizeStr.includes('3')) return 'WIRE#3';
+    if (sizeStr.includes('long')) return 'WIRE#5_long';
+    return 'WIRE#5_normal';
+  }
+
+  return 'OTHER';
+}
+
+/**
+ * Strict eligibility check for dynamic loss percentage.
+ * Only exact classes explicitly covered by the official factory loss chart qualify:
+ * - CZC#3, CZO#3, CZ#3, CZC#5, CZO#5, CZ#5
+ * - MZC#3, MZC#4, MZC#5, MZO#5
+ * - PZC#3, PZO#3, PZC#5, PZO#5
+ * All others (PZ#8, two_way, etc.) return false.
+ * 
+ * @param {string} zipperClass 
+ * @returns {boolean}
+ */
+function isClassEligibleForDynamicLoss(zipperClass) {
+  const eligibleClasses = [
+    'CZC#3', 'CZO#3', 'CZ#3',
+    'CZC#5', 'CZO#5', 'CZ#5',
+    'MZC#3', 'MZC#4', 'MZC#5', 'MZO#5',
+    'PZC#3', 'PZO#3', 'PZC#5', 'PZO#5'
+  ];
+  return eligibleClasses.includes(zipperClass);
+}
+
+/**
+ * Determine dynamic loss percentage from the official factory bracket chart.
+ * Uses exact chart ranges evaluated against displayed rounded Base Chain MTR:
+ * 
+ * CZC#3, CZO#3 & CZC#5, CZO#5:
+ *   0-200 MTR = 8% (< 200)
+ *   200-5000 MTR = 3% (200..5000)
+ *   ABOVE 5000 MTR = 2% (> 5000)
+ * 
+ * MZC#3:
+ *   0-200 MTR = 8% (< 200)
+ *   200-500 MTR = 7% (200..500)
+ *   500-1000 MTR = 3% (501..1000)
+ *   1000-2000 MTR = 1.5% (> 1000)
+ * 
+ * MZC#4 & MZC#5:
+ *   0-200 MTR = 8% (< 200)
+ *   200-1000 MTR = 2% (200..1000)
+ *   1000-2000 MTR = 1.5% (> 1000)
+ * 
+ * MZO#5:
+ *   0-200 MTR = 8% (< 200)
+ *   200-500 MTR = 6% (200..500)
+ *   500-2000 MTR = 3% (501..2000)
+ *   2000-5000 MTR = 1.5% (2001..5000)
+ *   ABOVE 5000 MTR = 1% (> 5000)
+ * 
+ * PZC#3, PZO#3 & PZC#5, PZO#5:
+ *   0-200 MTR = 8% (< 200)
+ *   200-500 MTR = 6% (200..500)
+ *   500-5000 MTR = 3% (501..5000)
+ *   5000-50000 MTR = 2% (5001..50000)
+ *   ABOVE 50000 MTR = 1.5% (> 50000)
+ * 
+ * @param {string} zipperClass 
+ * @param {number} combinedBaseChainMtr 
+ * @returns {number|null} Loss percentage (e.g. 3.0, 8.0, 1.5) or null if unsupported
+ */
+function getDynamicLossPercentage(zipperClass, combinedBaseChainMtr) {
+  if (!isClassEligibleForDynamicLoss(zipperClass)) {
+    return null; // Blank for unsupported classes (e.g. PZ#8, two_way)
+  }
+
+  // Base Chain MTR rounded to integer matching the displayed whole-number MTR in the UI
+  const mtr = Math.round(Math.max(0, Number(combinedBaseChainMtr) || 0));
+
+  // CZC#3, CZO#3, CZ#3, CZC#5, CZO#5, CZ#5:
+  if (
+    zipperClass === 'CZC#3' || zipperClass === 'CZO#3' || zipperClass === 'CZ#3' ||
+    zipperClass === 'CZC#5' || zipperClass === 'CZO#5' || zipperClass === 'CZ#5'
+  ) {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 5000) return 3.0;
+    return 2.0;
+  }
+
+  // MZC#3:
+  if (zipperClass === 'MZC#3') {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 500) return 7.0;
+    if (mtr <= 1000) return 3.0;
+    return 1.5;
+  }
+
+  // MZC#4 & MZC#5:
+  if (zipperClass === 'MZC#4' || zipperClass === 'MZC#5') {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 1000) return 2.0;
+    return 1.5;
+  }
+
+  // MZO#5:
+  if (zipperClass === 'MZO#5') {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 500) return 6.0;
+    if (mtr <= 2000) return 3.0;
+    if (mtr <= 5000) return 1.5;
+    return 1.0;
+  }
+
+  // PZC#3 / PZO#3:
+  if (zipperClass === 'PZC#3' || zipperClass === 'PZO#3') {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 500) return 6.0;
+    if (mtr <= 5000) return 3.0;
+    if (mtr <= 50000) return 2.0;
+    return 1.5;
+  }
+
+  // PZC#5 / PZO#5:
+  if (zipperClass === 'PZC#5' || zipperClass === 'PZO#5') {
+    if (mtr < 200) return 8.0;
+    if (mtr <= 500) return 6.0;
+    if (mtr <= 5000) return 3.0;
+    if (mtr <= 50000) return 2.0;
+    return 1.5;
+  }
+
+  return null;
+}
+
+/**
+ * Determine dynamic Slider loss percentage based on total zipper quantity (in PCS).
+ * Factory table:
+ *   0–500 pcs: 8%
+ *   501–2000 pcs: 4%
+ *   2001–5000 pcs: 2.5%
+ *   Above 5000 pcs: 1.5%
+ * 
+ * @param {number} quantityPcs - Total zipper pieces
+ * @returns {number} Loss percentage
+ */
+function getSliderDynamicLossPercentage(quantityPcs) {
+  const qty = Math.max(0, Number(quantityPcs) || 0);
+  if (qty <= 500) return 8.0;
+  if (qty <= 2000) return 4.0;
+  if (qty <= 5000) return 2.5;
+  return 1.5;
+}
+
+/**
+ * Determine dynamic Pin Box loss percentage based on relevant zipper quantity (in PCS).
+ * Factory table:
+ *   0–500 pcs: 8%
+ *   501–2000 pcs: 4%
+ *   2001+ pcs: 2.5%
+ * 
+ * @param {number} quantityPcs - Relevant zipper pieces (Open-End / Two-Way)
+ * @returns {number} Loss percentage
+ */
+function getPinBoxDynamicLossPercentage(quantityPcs) {
+  const qty = Math.max(0, Number(quantityPcs) || 0);
+  if (qty <= 500) return 8.0;
+  if (qty <= 2000) return 4.0;
+  return 2.5;
+}
+
+/**
+ * Determine dynamic H-Bottom loss percentage based on MZ#3 zipper quantity (in PCS).
+ * Factory table (MZ#3 only):
+ *   0–500 pcs: 8%
+ *   501–2000 pcs: 4%
+ *   2001+ pcs: 2.5%
+ * 
+ * @param {number} quantityPcs - MZ#3 zipper pieces
+ * @returns {number} Loss percentage
+ */
+function getHBottomDynamicLossPercentage(quantityPcs) {
+  const qty = Math.max(0, Number(quantityPcs) || 0);
+  if (qty <= 500) return 8.0;
+  if (qty <= 2000) return 4.0;
+  return 2.5;
+}
+
+/**
+ * Calculate the total MZ#3 zipper quantity (in PCS) from category variants.
+ * H-Bottom is applicable to MZ#3 only.
+ * 
+ * @param {Array<Object>} variants - Category variants
+ * @returns {number} MZ#3 quantity in PCS
+ */
+function getRelevantMZ3Quantity(variants) {
+  if (!Array.isArray(variants) || variants.length === 0) return 0;
+  return variants.reduce((sum, v) => {
+    const sz = String((v && v.zipperSize) || '').trim();
+    if (sz.includes('3')) {
+      return sum + Math.max(0, Number(v.quantity) || 0);
+    }
+    return sum;
+  }, 0);
+}
+
+/**
+ * Calculate the Relevant Zipper Quantity for Pin Box from category variants.
+ * Confirmed manufacturing rule: 1 Pin Box per zipper in zipper categories (CZ, MZ, PZ).
+ * 
+ * @param {Array<Object>} variants - Group variants
+ * @returns {number} Relevant quantity in PCS
+ */
+function getRelevantPinBoxQuantity(variants) {
+  if (!Array.isArray(variants) || variants.length === 0) return 0;
+  return variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+}
+
+/**
+ * Calculate the existing base (pre-loss) chain consumption for a single variant
+ * using exact factory allowances and conversion divisors.
+ * 
+ * @param {Object} variant 
+ * @param {string} category 
+ * @param {Object} [groupParams={}] 
+ * @returns {number} Base chain meters
+ */
+function calculateVariantBaseChainMtr(variant, category, groupParams = {}) {
+  const cat = String(category || '').toLowerCase().trim();
+  const qty = Math.max(0, Number(variant && variant.quantity) || 0);
+  const rawLen = Math.max(0, Number(variant && variant.length) || 0);
+  const unit = String((variant && variant.lengthUnit) || 'inch').toLowerCase().trim();
+  const isCm = (unit === 'cm' || unit === 'centimeter');
+  const sizeStr = String((variant && variant.zipperSize) || '').trim();
+
+  let allowance = 0;
+  let unitDivisor = isCm ? 100.0 : 39.37;
+
+  if (cat === 'cz' || cat === 'nylon') {
+    const is3 = sizeStr.includes('3');
+    if (isCm) {
+      allowance = (groupParams.cmAllowance !== undefined && groupParams.cmAllowance !== null && !isNaN(groupParams.cmAllowance))
+        ? Number(groupParams.cmAllowance)
+        : (is3 ? 4.0 : 4.5);
+    } else {
+      allowance = (groupParams.inchAllowance !== undefined && groupParams.inchAllowance !== null && !isNaN(groupParams.inchAllowance))
+        ? Number(groupParams.inchAllowance)
+        : ((groupParams.chainAllowance !== undefined && groupParams.chainAllowance !== null && !isNaN(groupParams.chainAllowance))
+            ? Number(groupParams.chainAllowance)
+            : (is3 ? 1.58 : 1.78));
+    }
+  } else if (cat === 'mz' || cat === 'metal') {
+    const is3 = sizeStr.includes('3');
+    if (isCm) {
+      allowance = (groupParams.cmAllowance !== undefined && groupParams.cmAllowance !== null && !isNaN(groupParams.cmAllowance))
+        ? Number(groupParams.cmAllowance)
+        : (is3 ? 4.5 : 5.0);
+    } else {
+      allowance = (groupParams.inchAllowance !== undefined && groupParams.inchAllowance !== null && !isNaN(groupParams.inchAllowance))
+        ? Number(groupParams.inchAllowance)
+        : (is3 ? 1.78 : 1.97);
+    }
+  } else if (cat === 'pz' || cat === 'plastic') {
+    const is8 = sizeStr.includes('8');
+    const is3 = sizeStr.includes('3');
+    if (isCm) {
+      allowance = (groupParams.cmAllowance !== undefined && groupParams.cmAllowance !== null && !isNaN(groupParams.cmAllowance))
+        ? Number(groupParams.cmAllowance)
+        : (is8 ? 6.3 : (is3 ? 5.0 : 5.0));
+    } else {
+      allowance = (groupParams.inchAllowance !== undefined && groupParams.inchAllowance !== null && !isNaN(groupParams.inchAllowance))
+        ? Number(groupParams.inchAllowance)
+        : ((groupParams.chainAllowance !== undefined && groupParams.chainAllowance !== null && !isNaN(groupParams.chainAllowance))
+            ? Number(groupParams.chainAllowance)
+            : (is8 ? 2.4 : (is3 ? 1.97 : 1.97)));
+    }
+  } else if (cat === 'wire') {
+    const isLong = sizeStr.includes('long');
+    if (isLong) {
+      allowance = isCm ? 5.0 : 1.97;
+    } else {
+      allowance = 0;
+    }
+  }
+
+  return ((rawLen + allowance) * qty) / unitDivisor;
+}
+
+/**
+ * Consolidate variants belonging to the same class within a category group.
+ * Sums base chain meters per class, evaluates dynamic loss brackets, and applies user overrides.
+ * 
+ * @param {Array<Object>} variants 
+ * @param {string} category 
+ * @param {Object} [groupParams={}] 
+ * @param {Object} [userOverrides={}] 
+ * @returns {Object} Map of classKey -> class consolidation summary
+ */
+function consolidateGroupClasses(variants, category, groupParams = {}, userOverrides = {}) {
+  const vars = Array.isArray(variants) ? variants : [];
+  const classMap = {};
+
+  vars.forEach(v => {
+    const classKey = getVariantZipperClass(v, category);
+    if (!classMap[classKey]) {
+      classMap[classKey] = {
+        classKey: classKey,
+        category: category,
+        variants: [],
+        totalQuantity: 0,
+        baseChainMtr: 0,
+        isEligible: isClassEligibleForDynamicLoss(classKey)
+      };
+    }
+    const baseMtr = calculateVariantBaseChainMtr(v, category, groupParams);
+    classMap[classKey].variants.push({
+      ...v,
+      baseChainMtr: baseMtr
+    });
+    classMap[classKey].totalQuantity += Math.max(0, Number(v.quantity) || 0);
+    classMap[classKey].baseChainMtr += baseMtr;
+  });
+
+  const result = {};
+  for (const [classKey, cData] of Object.entries(classMap)) {
+    const defaultLoss = cData.isEligible ? getDynamicLossPercentage(classKey, cData.baseChainMtr) : null;
+    const czFallbackKey = (classKey.startsWith('CZC') || classKey.startsWith('CZO')) ? ('CZ' + classKey.slice(3)) : (classKey.startsWith('CZ#') ? ('CZC' + classKey.slice(2)) : null);
+    const rawOverride = (userOverrides && userOverrides[classKey] !== undefined && userOverrides[classKey] !== null && userOverrides[classKey] !== '')
+      ? userOverrides[classKey]
+      : ((userOverrides && czFallbackKey && userOverrides[czFallbackKey] !== undefined && userOverrides[czFallbackKey] !== null && userOverrides[czFallbackKey] !== '')
+          ? userOverrides[czFallbackKey]
+          : undefined);
+    const hasOverride = rawOverride !== undefined;
+    const overrideVal = hasOverride ? Number(rawOverride) : null;
+
+    let effectiveLoss = null;
+    if (hasOverride && !isNaN(overrideVal)) {
+      effectiveLoss = overrideVal;
+    } else if (defaultLoss !== null && defaultLoss !== undefined) {
+      effectiveLoss = defaultLoss;
+    }
+
+    result[classKey] = {
+      classKey: classKey,
+      category: category,
+      variantCount: cData.variants.length,
+      variants: cData.variants,
+      totalQuantity: cData.totalQuantity,
+      baseChainMtr: cData.baseChainMtr,
+      isEligible: cData.isEligible,
+      defaultLossPercent: defaultLoss,
+      effectiveLossPercent: effectiveLoss,
+      isOverridden: hasOverride && !isNaN(overrideVal),
+      overrideVal: hasOverride ? overrideVal : null
+    };
+  }
+
+  return result;
 }
 
 /**
@@ -612,14 +1076,77 @@ function calculateFullEstimate(estimateState) {
     const groupLossPercent = group.lossPercent !== undefined ? Number(group.lossPercent) : 3.0;
     const variants = Array.isArray(group.variants) ? group.variants : [];
 
+    // Class-based consolidation & dynamic loss percentage evaluation
+    const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+    const classConsolidation = consolidateGroupClasses(variants, groupCategory, groupParams, group.classLossOverrides);
+    const classLossPercentages = {};
+    for (const [cKey, cInfo] of Object.entries(classConsolidation)) {
+      if (cInfo.effectiveLossPercent !== null && cInfo.effectiveLossPercent !== undefined) {
+        classLossPercentages[cKey] = cInfo.effectiveLossPercent;
+      }
+    }
+
+    // Evaluate group zipper quantity, Pin Box multiplier, and dynamic Slider/Pin Box loss
+    const groupTotalZipperQty = variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+    const pinBoxPerZipper = group.pinBoxPerZipper !== undefined ? Number(group.pinBoxPerZipper) : 1;
+    const isSliderOverridden = Boolean(group.isSliderOverridden);
+    let effectiveSliderPercent = null;
+    const currentSliderVal = (group.sliderAdditionPercent !== undefined && group.sliderAdditionPercent !== null)
+      ? group.sliderAdditionPercent
+      : (group.sliderAddPercent !== undefined && group.sliderAddPercent !== null ? group.sliderAddPercent : null);
+
+    if (isSliderOverridden && currentSliderVal !== null) {
+      effectiveSliderPercent = Number(currentSliderVal);
+    } else {
+      effectiveSliderPercent = getSliderDynamicLossPercentage(groupTotalZipperQty);
+      group.sliderAdditionPercent = effectiveSliderPercent;
+      group.sliderAddPercent = effectiveSliderPercent;
+    }
+
+    const relevantPinBoxQty = getRelevantPinBoxQuantity(variants);
+    const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupTotalZipperQty;
+    const isPinBoxLossOverridden = Boolean(group.isPinBoxLossOverridden);
+    let effectivePinBoxLossPercent = null;
+    if (isPinBoxLossOverridden && group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null) {
+      effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
+    } else if (group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null) {
+      effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
+    } else {
+      effectivePinBoxLossPercent = getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+    }
+
+    const mz3ScopeQty = getRelevantMZ3Quantity(variants);
+    const isHBottomLossOverridden = Boolean(group.isHBottomLossOverridden);
+    let effectiveHBottomLossPercent = null;
+    const currentHBottomLoss = (group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
+      ? Number(group.mzParams.hBottomLossPercent)
+      : (group.hBottomLossPercent !== undefined && group.hBottomLossPercent !== null ? Number(group.hBottomLossPercent) : null);
+
+    if (isHBottomLossOverridden && currentHBottomLoss !== null) {
+      effectiveHBottomLossPercent = currentHBottomLoss;
+    } else if (currentHBottomLoss !== null && currentHBottomLoss !== 2.5) {
+      effectiveHBottomLossPercent = currentHBottomLoss;
+    } else {
+      effectiveHBottomLossPercent = getHBottomDynamicLossPercentage(mz3ScopeQty);
+    }
+
     let groupResult = null;
+
+    const isSpecialUTopOrder = Boolean(group.isSpecialUTopOrder || (group.czParams && group.czParams.isSpecialUTopOrder));
 
     if (groupCategory === 'cz' || groupCategory === 'nylon') {
       if (czEngine) {
         groupResult = czEngine.calculateCZMaster(variants, {
           lossPercent: groupLossPercent,
-          sliderAdditionPercent: group.sliderAdditionPercent,
-          czParams: group.czParams || {},
+          classLossPercentages: classLossPercentages,
+          sliderAdditionPercent: effectiveSliderPercent,
+          pinBoxLossPercent: effectivePinBoxLossPercent,
+          pinBoxPerZipper: pinBoxPerZipper,
+          isSpecialUTopOrder: isSpecialUTopOrder,
+          czParams: {
+            ...(group.czParams || {}),
+            isSpecialUTopOrder: isSpecialUTopOrder
+          },
           priceOverrides: estimateState.priceOverrides || {}
         });
       }
@@ -627,8 +1154,15 @@ function calculateFullEstimate(estimateState) {
       if (mzEngine) {
         groupResult = mzEngine.calculateMZMaster(variants, {
           lossPercent: groupLossPercent,
-          sliderAdditionPercent: group.sliderAdditionPercent,
-          mzParams: group.mzParams || {},
+          classLossPercentages: classLossPercentages,
+          sliderAdditionPercent: effectiveSliderPercent,
+          pinBoxLossPercent: effectivePinBoxLossPercent,
+          pinBoxPerZipper: pinBoxPerZipper,
+          hBottomLossPercent: effectiveHBottomLossPercent,
+          mzParams: {
+            ...(group.mzParams || {}),
+            hBottomLossPercent: effectiveHBottomLossPercent
+          },
           priceOverrides: estimateState.priceOverrides || {}
         });
       }
@@ -636,6 +1170,7 @@ function calculateFullEstimate(estimateState) {
       if (wireEngine) {
         groupResult = wireEngine.calculateWireMaster(variants, {
           lossPercent: groupLossPercent,
+          classLossPercentages: classLossPercentages,
           wireParams: group.wireParams || {},
           priceOverrides: estimateState.priceOverrides || {}
         });
@@ -644,7 +1179,10 @@ function calculateFullEstimate(estimateState) {
       if (pzEngine) {
         groupResult = pzEngine.calculatePZMaster(variants, {
           lossPercent: groupLossPercent,
-          sliderAdditionPercent: group.sliderAdditionPercent,
+          classLossPercentages: classLossPercentages,
+          sliderAdditionPercent: effectiveSliderPercent,
+          pinBoxLossPercent: effectivePinBoxLossPercent,
+          pinBoxPerZipper: pinBoxPerZipper,
           pzParams: group.pzParams || {},
           priceOverrides: estimateState.priceOverrides || {}
         });
@@ -722,7 +1260,18 @@ function calculateFullEstimate(estimateState) {
         color: group.color || '',
         remarks: group.remarks || '',
         lossPercent: groupLossPercent,
-        sliderAdditionPercent: group.sliderAdditionPercent,
+        classLossOverrides: group.classLossOverrides || {},
+        classConsolidation: classConsolidation,
+        classLossPercentages: classLossPercentages,
+        sliderAdditionPercent: effectiveSliderPercent,
+        sliderAddPercent: effectiveSliderPercent,
+        isSliderOverridden: isSliderOverridden,
+        pinBoxLossPercent: effectivePinBoxLossPercent,
+        isPinBoxLossOverridden: isPinBoxLossOverridden,
+        pinBoxPerZipper: pinBoxPerZipper,
+        hBottomLossPercent: effectiveHBottomLossPercent,
+        isHBottomLossOverridden: isHBottomLossOverridden,
+        isSpecialUTopOrder: isSpecialUTopOrder,
         czParams: group.czParams || {},
         mzParams: group.mzParams || {},
         wireParams: group.wireParams || {},
@@ -743,7 +1292,18 @@ function calculateFullEstimate(estimateState) {
         color: group.color || '',
         remarks: group.remarks || '',
         lossPercent: groupLossPercent,
-        sliderAdditionPercent: group.sliderAdditionPercent,
+        classLossOverrides: group.classLossOverrides || {},
+        classConsolidation: classConsolidation,
+        classLossPercentages: classLossPercentages,
+        sliderAdditionPercent: effectiveSliderPercent,
+        sliderAddPercent: effectiveSliderPercent,
+        isSliderOverridden: isSliderOverridden,
+        pinBoxLossPercent: effectivePinBoxLossPercent,
+        isPinBoxLossOverridden: isPinBoxLossOverridden,
+        pinBoxPerZipper: pinBoxPerZipper,
+        hBottomLossPercent: effectiveHBottomLossPercent,
+        isHBottomLossOverridden: isHBottomLossOverridden,
+        isSpecialUTopOrder: isSpecialUTopOrder,
         czParams: group.czParams || {},
         mzParams: group.mzParams || {},
         wireParams: group.wireParams || {},
@@ -988,6 +1548,7 @@ if (typeof window !== 'undefined') {
     formatQuantity,
     getMaterialDisplayDecimals,
     formatBOMQuantity,
+    isSliderRow,
     calculateMaterialRow,
     calculateTotalMaterials,
     calculateVariant,
@@ -996,7 +1557,18 @@ if (typeof window !== 'undefined') {
     calculateOverheadCost,
     calculateOtherCosts,
     calculateFullEstimate,
-    buildMergedBOM
+    buildMergedBOM,
+    getVariantZipperClass,
+    isClassEligibleForDynamicLoss,
+    getDynamicLossPercentage,
+    getSliderDynamicLossPercentage,
+    getSliderDynamicAddPercentage: getSliderDynamicLossPercentage,
+    getPinBoxDynamicLossPercentage,
+    getHBottomDynamicLossPercentage,
+    getRelevantPinBoxQuantity,
+    getRelevantMZ3Quantity,
+    calculateVariantBaseChainMtr,
+    consolidateGroupClasses
   };
 }
 
@@ -1006,6 +1578,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatQuantity,
     getMaterialDisplayDecimals,
     formatBOMQuantity,
+    isSliderRow,
     calculateMaterialRow,
     calculateTotalMaterials,
     calculateVariant,
@@ -1014,7 +1587,18 @@ if (typeof module !== 'undefined' && module.exports) {
     calculateOverheadCost,
     calculateOtherCosts,
     calculateFullEstimate,
-    buildMergedBOM
+    buildMergedBOM,
+    getVariantZipperClass,
+    isClassEligibleForDynamicLoss,
+    getDynamicLossPercentage,
+    getSliderDynamicLossPercentage,
+    getSliderDynamicAddPercentage: getSliderDynamicLossPercentage,
+    getPinBoxDynamicLossPercentage,
+    getHBottomDynamicLossPercentage,
+    getRelevantPinBoxQuantity,
+    getRelevantMZ3Quantity,
+    calculateVariantBaseChainMtr,
+    consolidateGroupClasses
   };
 }
 
