@@ -1015,9 +1015,46 @@ function calculateFullEstimate(estimateState) {
   const overheadConfig = estimateState.overhead || {};
   const otherCosts = estimateState.otherCosts || [];
 
-  // Normalize category groups from state
+  // Normalize category groups / items from state
   let rawGroups = [];
-  if (Array.isArray(estimateState.categoryGroups) && estimateState.categoryGroups.length > 0) {
+  if (Array.isArray(estimateState.items) && estimateState.items.length > 0) {
+    rawGroups = estimateState.items.map((item, idx) => ({
+      id: item.id || `item_${idx + 1}`,
+      name: item.displayName || item.name || `Item ${idx + 1}`,
+      category: item.category || 'cz',
+      styleName: item.styleName || '',
+      color: item.color || '',
+      remarks: item.remarks || '',
+      lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (item.category === 'wire' ? (item.zipperSize === '#3' ? 4.0 : 5.0) : 3.0),
+      classLossOverrides: item.classLossOverrides || {},
+      sliderAdditionPercent: item.sliderAdditionPercent,
+      sliderAddPercent: item.sliderAddPercent,
+      isSliderOverridden: item.isSliderOverridden,
+      pinBoxLossPercent: item.pinBoxLossPercent,
+      isPinBoxLossOverridden: item.isPinBoxLossOverridden,
+      pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
+      hBottomLossPercent: item.hBottomLossPercent,
+      isHBottomLossOverridden: item.isHBottomLossOverridden,
+      isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
+      czParams: item.czParams || {},
+      mzParams: item.mzParams || {},
+      wireParams: item.wireParams || {},
+      pzParams: item.pzParams || {},
+      variants: [{
+        id: item.id,
+        name: item.displayName || item.name || `Item ${idx + 1}`,
+        zipperSize: item.zipperSize || '#5',
+        zipperType: item.zipperType || 'closed_end',
+        length: item.length !== undefined && item.length !== null ? item.length : 0,
+        lengthUnit: item.lengthUnit || 'inch',
+        allowance: item.allowance !== undefined ? item.allowance : 0,
+        quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 0,
+        color: item.color || '',
+        remarks: item.remarks || '',
+        bomRows: item.bomRows || []
+      }]
+    }));
+  } else if (Array.isArray(estimateState.categoryGroups) && estimateState.categoryGroups.length > 0) {
     rawGroups = estimateState.categoryGroups;
   } else {
     // Backward compatibility with single-category estimate
@@ -1356,7 +1393,9 @@ function calculateFullEstimate(estimateState) {
   const defaultActiveGroup = calculatedGroups.find(g => g.calculation && g.totalQuantity > 0) || calculatedGroups[0];
 
   return {
+    items: calculatedGroups,
     categoryGroups: calculatedGroups,
+    activeItemId: defaultActiveGroup ? defaultActiveGroup.id : null,
     activeGroupId: defaultActiveGroup ? defaultActiveGroup.id : null,
     // Group-specific aliases for backwards compatibility with single group views
     formulaDetails: defaultActiveGroup ? defaultActiveGroup.formulaDetails : null,

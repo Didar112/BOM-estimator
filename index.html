@@ -69,10 +69,10 @@
   <main class="app-container">
     <div class="main-layout-grid">
 
-      <!-- ==================== LEFT MAIN AREA (68%) ==================== -->
+      <!-- ==================== LEFT MAIN AREA (60%) ==================== -->
       <div class="left-column">
 
-        <!-- CARD 1: PRODUCT INFORMATION -->
+        <!-- CARD 1: ITEMS CONFIGURATION -->
         <section class="card" id="section-product-info">
           <div class="card-header">
             <div class="card-title-group">
@@ -82,27 +82,58 @@
                 </svg>
               </div>
               <div>
-                <h2 class="card-title">1. Product Information</h2>
-                <p class="card-subtitle">Configure independent category groups &amp; multiple product variants</p>
+                <h2 class="card-title" id="heading-items-section">1. Items</h2>
+                <p class="card-subtitle">Configure independent zipper items &amp; production requirements</p>
               </div>
             </div>
           </div>
 
           <div class="card-body">
-            <!-- Dynamic Category Groups Container -->
-            <div id="category-groups-container" class="category-groups-container">
+            <!-- Top Toolbar: Items counter & Add New Item -->
+            <div class="items-toolbar flex items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200 flex-wrap">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-slate-800 uppercase tracking-wider" id="items-count-display">
+                  Items (<span id="items-count-badge">0</span>)
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="select-add-item-variant" class="form-select form-select-sm" style="min-width: 175px;">
+                  <optgroup label="Nylon Zipper (CZ)">
+                    <option value="cz_5" selected>CZ#5</option>
+                    <option value="cz_3">CZ#3</option>
+                  </optgroup>
+                  <optgroup label="Metal Zipper (MZ)">
+                    <option value="mz_3">MZ#3</option>
+                    <option value="mz_4">MZ#4</option>
+                    <option value="mz_5">MZ#5</option>
+                  </optgroup>
+                  <optgroup label="Plastic Zipper (PZ)">
+                    <option value="pz_3">PZ#3</option>
+                    <option value="pz_5">PZ#5</option>
+                    <option value="pz_8">PZ#8</option>
+                  </optgroup>
+                  <optgroup label="Brass / Metal Wire">
+                    <option value="wire_3">WIRE#3</option>
+                    <option value="wire_5_normal">WIRE#5 — Normal</option>
+                    <option value="wire_5_long">WIRE#5 — Long</option>
+                  </optgroup>
+                </select>
+                <button type="button" id="btn-add-item" class="btn btn-sm btn-primary" title="Add another independent Item">
+                  <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+                  </svg>
+                  + Add New Item
+                </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Items Container -->
+            <div id="items-container" class="items-container">
               <!-- Dynamically populated via app.js -->
             </div>
 
-            <!-- Button: Add New Category Group -->
-            <div class="add-category-wrapper mt-4 pt-2">
-              <button type="button" id="btn-add-category-group" class="btn btn-outline btn-add-category-group" title="Add a new independent Category Group">
-                <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:18px;height:18px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-                </svg>
-                + Add New Category
-              </button>
-            </div>
+            <!-- Legacy alias container for backward-compat -->
+            <div id="category-groups-container" style="display: none;"></div>
           </div>
         </section>
 
@@ -117,7 +148,7 @@
               </div>
               <div>
                 <h2 class="card-title">2. Bill of Materials (BOM)</h2>
-                <p class="card-subtitle">Consolidated material requirements across all configured category groups &amp; variants</p>
+                <p class="card-subtitle">Consolidated material requirements across all configured items</p>
               </div>
             </div>
 
@@ -128,7 +159,7 @@
                 </svg>
                 + Add Custom Material
               </button>
-              <button type="button" id="btn-reset-bom" class="btn btn-sm btn-ghost" title="Reset all variants to suggested defaults">
+              <button type="button" id="btn-reset-bom" class="btn btn-sm btn-ghost" title="Reset all items to suggested defaults">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
@@ -150,7 +181,34 @@
       <!-- ==================== RIGHT STICKY COLUMN (40%) ==================== -->
       <div class="right-column">
 
-        <!-- CARD: CALCULATION DETAILS (MATERIAL INSPECTOR) -->
+        <!-- CARD 1: SELECT ITEM (CONFIGURATION PANEL) -->
+        <section class="card card-select-item mb-4" id="section-select-item">
+          <div class="card-header select-item-header">
+            <div class="flex items-center justify-between">
+              <div class="card-title-group">
+                <div class="card-icon icon-gear-sm" aria-hidden="true">
+                  <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="card-title text-base" id="heading-select-item">Select Item</h3>
+                  <span class="card-subtitle text-xs text-muted" id="subheading-select-item">Item-specific factory parameters &amp; configuration</span>
+                </div>
+              </div>
+              <div id="active-item-badge-wrapper">
+                <!-- Dynamically populated: Active item pill -->
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body select-item-body" id="select-item-config-body">
+            <!-- Dynamically populated via app.js -->
+          </div>
+        </section>
+
+        <!-- CARD 2: CALCULATION DETAILS (MATERIAL INSPECTOR) -->
         <section class="card card-formula-details" id="section-formula-details">
           <div class="calc-sidebar-header">
             <div class="calc-header-top">
@@ -180,12 +238,9 @@
           </div>
         </section>
 
-
-
       </div>
 
     </div>
-
 
   </main>
 

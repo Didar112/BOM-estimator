@@ -285,6 +285,86 @@ function normalizeEstimate(est) {
     });
   }
 
+  // Items Normalization (Independent Items Architecture)
+  if (Array.isArray(normalized.items) && normalized.items.length > 0) {
+    normalized.items = normalized.items.map((item, idx) => {
+      const cat = item.category || 'cz';
+      const sz = item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
+      const dName = item.displayName || `${cat.toUpperCase()}${sz}`;
+      return {
+        id: item.id || `item_${idx + 1}`,
+        variantKey: item.variantKey || `${cat}_${sz.replace('#', '')}`,
+        displayName: dName,
+        name: item.name || dName,
+        category: cat,
+        zipperSize: sz,
+        zipperType: item.zipperType || 'closed_end',
+        length: item.length !== undefined && item.length !== null ? item.length : 0,
+        lengthUnit: item.lengthUnit || 'inch',
+        quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 0,
+        color: item.color || '',
+        styleName: item.styleName || '',
+        remarks: item.remarks || '',
+        lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (cat === 'wire' ? 4.0 : 3.0),
+        classLossOverrides: item.classLossOverrides || {},
+        sliderAdditionPercent: item.sliderAdditionPercent !== undefined ? Number(item.sliderAdditionPercent) : 8.0,
+        sliderAddPercent: item.sliderAddPercent !== undefined ? Number(item.sliderAddPercent) : 8.0,
+        isSliderOverridden: Boolean(item.isSliderOverridden),
+        pinBoxLossPercent: item.pinBoxLossPercent !== undefined ? Number(item.pinBoxLossPercent) : 4.0,
+        isPinBoxLossOverridden: Boolean(item.isPinBoxLossOverridden),
+        pinBoxPerZipper: 1,
+        hBottomLossPercent: item.hBottomLossPercent !== undefined ? Number(item.hBottomLossPercent) : undefined,
+        isHBottomLossOverridden: Boolean(item.isHBottomLossOverridden),
+        isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
+        czParams: item.czParams || {},
+        mzParams: item.mzParams || {},
+        wireParams: item.wireParams || {},
+        pzParams: item.pzParams || {},
+        bomRows: Array.isArray(item.bomRows) ? item.bomRows : []
+      };
+    });
+  } else if (Array.isArray(normalized.categoryGroups) && normalized.categoryGroups.length > 0) {
+    normalized.items = [];
+    normalized.categoryGroups.forEach((g, gIdx) => {
+      const cat = g.category || 'cz';
+      (g.variants || []).forEach((v, vIdx) => {
+        const sz = v.zipperSize || '#5';
+        const dName = `${cat.toUpperCase()}${sz}`;
+        normalized.items.push({
+          id: v.id || `item_${gIdx + 1}_${vIdx + 1}`,
+          variantKey: `${cat}_${sz.replace('#', '')}`,
+          displayName: dName,
+          name: v.name || dName,
+          category: cat,
+          zipperSize: sz,
+          zipperType: v.zipperType || 'closed_end',
+          length: v.length !== undefined && v.length !== null ? v.length : 0,
+          lengthUnit: v.lengthUnit || 'inch',
+          quantity: v.quantity !== undefined && v.quantity !== null ? v.quantity : 0,
+          color: v.color || g.color || '',
+          styleName: g.styleName || '',
+          remarks: v.remarks || g.remarks || '',
+          lossPercent: g.lossPercent !== undefined ? Number(g.lossPercent) : (cat === 'wire' ? 4.0 : 3.0),
+          classLossOverrides: g.classLossOverrides || {},
+          sliderAdditionPercent: g.sliderAdditionPercent,
+          sliderAddPercent: g.sliderAddPercent,
+          isSliderOverridden: g.isSliderOverridden,
+          pinBoxLossPercent: g.pinBoxLossPercent,
+          isPinBoxLossOverridden: g.isPinBoxLossOverridden,
+          pinBoxPerZipper: 1,
+          hBottomLossPercent: g.hBottomLossPercent,
+          isHBottomLossOverridden: g.isHBottomLossOverridden,
+          isSpecialUTopOrder: g.isSpecialUTopOrder,
+          czParams: g.czParams || {},
+          mzParams: g.mzParams || {},
+          wireParams: g.wireParams || {},
+          pzParams: g.pzParams || {},
+          bomRows: v.bomRows || []
+        });
+      });
+    });
+  }
+
   if (!normalized.priceOverrides || typeof normalized.priceOverrides !== 'object') {
     normalized.priceOverrides = {};
   }

@@ -5,31 +5,319 @@
  * and Real-Time Production Cost Estimation.
  */
 
+// Supported Item Variants definition
+const SUPPORTED_ITEM_VARIANTS = [
+  { key: 'cz_5', category: 'cz', size: '#5', displayName: 'CZ#5', label: 'CZ#5 (Nylon Zipper #5)' },
+  { key: 'cz_3', category: 'cz', size: '#3', displayName: 'CZ#3', label: 'CZ#3 (Nylon Zipper #3)' },
+  { key: 'mz_3', category: 'mz', size: '#3', displayName: 'MZ#3', label: 'MZ#3 (Metal Zipper #3)' },
+  { key: 'mz_4', category: 'mz', size: '#4', displayName: 'MZ#4', label: 'MZ#4 (Metal Zipper #4)' },
+  { key: 'mz_5', category: 'mz', size: '#5', displayName: 'MZ#5', label: 'MZ#5 (Metal Zipper #5)' },
+  { key: 'pz_3', category: 'pz', size: '#3', displayName: 'PZ#3', label: 'PZ#3 (Plastic Zipper #3)' },
+  { key: 'pz_5', category: 'pz', size: '#5', displayName: 'PZ#5', label: 'PZ#5 (Plastic Zipper #5)' },
+  { key: 'pz_8', category: 'pz', size: '#8', displayName: 'PZ#8', label: 'PZ#8 (Plastic Zipper #8)' },
+  { key: 'wire_3', category: 'wire', size: '#3', displayName: 'WIRE#3', label: 'WIRE#3 (Brass Wire #3)' },
+  { key: 'wire_5_normal', category: 'wire', size: '#5_normal', displayName: 'WIRE#5 Normal Teeth', label: 'WIRE#5 — Normal Teeth' },
+  { key: 'wire_5_long', category: 'wire', size: '#5_long', displayName: 'WIRE#5 Long Teeth', label: 'WIRE#5 — Long Teeth' }
+];
+
+/**
+ * Get variant definition object
+ * @param {string} variantKeyOrCat
+ * @param {string|null} [size=null]
+ * @returns {Object}
+ */
+function getVariantDef(variantKeyOrCat, size = null) {
+  if (size !== null) {
+    const cat = String(variantKeyOrCat || '').toLowerCase().trim();
+    const sz = String(size || '').toLowerCase().trim();
+    return SUPPORTED_ITEM_VARIANTS.find(v => v.category === cat && v.size.toLowerCase() === sz) ||
+           SUPPORTED_ITEM_VARIANTS.find(v => v.category === cat) ||
+           SUPPORTED_ITEM_VARIANTS[0];
+  }
+  const key = String(variantKeyOrCat || '').toLowerCase().trim();
+  return SUPPORTED_ITEM_VARIANTS.find(v => v.key.toLowerCase() === key) ||
+         SUPPORTED_ITEM_VARIANTS.find(v => v.category.toLowerCase() === key) ||
+         SUPPORTED_ITEM_VARIANTS[0];
+}
+
+/**
+ * Get display name for an item variant
+ * @param {string} cat
+ * @param {string} size
+ * @returns {string}
+ */
+function getVariantDisplayName(cat, size) {
+  const def = getVariantDef(cat, size);
+  return def ? def.displayName : `${String(cat || '').toUpperCase()}${size || ''}`;
+}
+
+/**
+ * Factory to create an independent Item object
+ * @param {string} [variantKey='cz_5']
+ * @param {Object} [overrides={}]
+ * @returns {Object}
+ */
+function createItem(variantKey = 'cz_5', overrides = {}) {
+  const vDef = getVariantDef(variantKey);
+  const cat = vDef.category;
+  const sz = vDef.size;
+  const uniqueId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
+  const defaultSliderAdd = 8.0;
+  const defaultPinBoxLoss = 4.0;
+  const defaultHBottomLoss = (cat === 'mz' && String(sz).includes('3')) ? 4.0 : undefined;
+
+  const newItem = {
+    id: uniqueId,
+    variantKey: vDef.key,
+    displayName: vDef.displayName,
+    name: vDef.displayName,
+    category: cat,
+    zipperSize: sz,
+    zipperType: overrides.zipperType || 'closed_end',
+    length: overrides.length !== undefined && overrides.length !== null ? overrides.length : 7.5,
+    lengthUnit: overrides.lengthUnit || 'inch',
+    quantity: overrides.quantity !== undefined && overrides.quantity !== null ? overrides.quantity : 1000,
+    color: overrides.color || '',
+    styleName: overrides.styleName || '',
+    remarks: overrides.remarks || '',
+    lossPercent: cat === 'wire' ? (sz === '#3' ? 4.0 : 5.0) : 3.0,
+    classLossOverrides: overrides.classLossOverrides ? { ...overrides.classLossOverrides } : {},
+    sliderAdditionPercent: defaultSliderAdd,
+    sliderAddPercent: defaultSliderAdd,
+    isSliderOverridden: false,
+    pinBoxLossPercent: defaultPinBoxLoss,
+    isPinBoxLossOverridden: false,
+    pinBoxPerZipper: 1,
+    hBottomLossPercent: defaultHBottomLoss,
+    isHBottomLossOverridden: false,
+    isSpecialUTopOrder: false,
+    czParams: overrides.czParams ? { ...overrides.czParams } : {},
+    mzParams: overrides.mzParams ? { ...overrides.mzParams } : {},
+    wireParams: overrides.wireParams ? { ...overrides.wireParams } : {},
+    pzParams: overrides.pzParams ? { ...overrides.pzParams } : {},
+    bomRows: []
+  };
+
+  if (typeof window !== 'undefined' && window.BOMRules) {
+    newItem.allowance = window.BOMRules.getSuggestedAllowance(cat, sz, newItem.lengthUnit, newItem.zipperType);
+    newItem.bomRows = window.BOMRules.generateSuggestedBOM(newItem, cat);
+  }
+
+  newItem.variants = [
+    {
+      id: 'var_' + uniqueId,
+      name: vDef.displayName,
+      zipperSize: sz,
+      zipperType: newItem.zipperType,
+      length: newItem.length,
+      lengthUnit: newItem.lengthUnit,
+      allowance: newItem.allowance || 0,
+      quantity: newItem.quantity,
+      color: newItem.color,
+      remarks: newItem.remarks,
+      bomRows: newItem.bomRows || []
+    }
+  ];
+
+  return Object.assign(newItem, overrides);
+}
+
+/**
+ * Retrieve the currently active independent Item object
+ * @returns {Object|null}
+ */
+function getActiveItem() {
+  const items = (appState.currentEstimate && Array.isArray(appState.currentEstimate.items)) ? appState.currentEstimate.items : [];
+  if (items.length === 0) return null;
+  return items.find(it => it.id === appState.activeItemId) || items[0];
+}
+
+/**
+ * Synchronize state between items[] and categoryGroups[]
+ * Ensures backward compatibility with existing calculation engine and test harnesses.
+ */
+function syncStateItemsAndGroups() {
+  if (!appState.currentEstimate) return;
+
+  const est = appState.currentEstimate;
+  if (!Array.isArray(est.items)) est.items = [];
+  if (!Array.isArray(est.categoryGroups)) est.categoryGroups = [];
+
+  if (est.items.length > 0) {
+    // Mirror items to categoryGroups (one category group per item)
+    est.categoryGroups = est.items.map((item, idx) => ({
+      id: item.id,
+      name: item.displayName || item.name || `Item ${idx + 1}`,
+      category: item.category || 'cz',
+      styleName: item.styleName || '',
+      color: item.color || '',
+      remarks: item.remarks || '',
+      lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : 3.0,
+      classLossOverrides: item.classLossOverrides || {},
+      sliderAdditionPercent: item.sliderAdditionPercent,
+      sliderAddPercent: item.sliderAddPercent || item.sliderAdditionPercent,
+      isSliderOverridden: item.isSliderOverridden,
+      pinBoxLossPercent: item.pinBoxLossPercent,
+      isPinBoxLossOverridden: item.isPinBoxLossOverridden,
+      pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
+      hBottomLossPercent: item.hBottomLossPercent,
+      isHBottomLossOverridden: item.isHBottomLossOverridden,
+      isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
+      czParams: item.czParams || {},
+      mzParams: item.mzParams || {},
+      wireParams: item.wireParams || {},
+      pzParams: item.pzParams || {},
+      variants: [{
+        id: `var_${item.id}`,
+        name: item.displayName || item.name || `Item ${idx + 1}`,
+        zipperSize: item.zipperSize || '#5',
+        zipperType: item.zipperType || 'closed_end',
+        length: item.length !== undefined && item.length !== null ? item.length : 0,
+        lengthUnit: item.lengthUnit || 'inch',
+        allowance: item.allowance !== undefined ? item.allowance : 0,
+        quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 0,
+        color: item.color || '',
+        remarks: item.remarks || '',
+        bomRows: item.bomRows || []
+      }]
+    }));
+
+    if (!appState.activeItemId || !est.items.some(it => it.id === appState.activeItemId)) {
+      appState.activeItemId = est.items[0].id;
+    }
+  } else if (est.categoryGroups.length > 0) {
+    // Convert legacy categoryGroups to independent items
+    est.items = [];
+    est.categoryGroups.forEach((g, gIdx) => {
+      const cat = g.category || 'cz';
+      const variants = Array.isArray(g.variants) && g.variants.length > 0 ? g.variants : [{
+        id: `var_${g.id}_1`,
+        name: 'CZ#5',
+        zipperSize: '#5',
+        zipperType: 'closed_end',
+        length: 7.5,
+        lengthUnit: 'inch',
+        quantity: 1000
+      }];
+
+      variants.forEach((v, vIdx) => {
+        const sz = v.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
+        const vDef = getVariantDef(cat, sz);
+        const itemObj = {
+          id: v.id || `item_${g.id}_${vIdx + 1}`,
+          variantKey: vDef.key,
+          displayName: vDef.displayName,
+          name: v.name || vDef.displayName,
+          category: cat,
+          zipperSize: sz,
+          zipperType: v.zipperType || 'closed_end',
+          length: v.length !== undefined ? v.length : 0,
+          lengthUnit: v.lengthUnit || 'inch',
+          quantity: v.quantity !== undefined ? v.quantity : 0,
+          color: v.color || g.color || '',
+          styleName: g.styleName || '',
+          remarks: v.remarks || g.remarks || '',
+          lossPercent: g.lossPercent !== undefined ? g.lossPercent : (cat === 'wire' ? 4.0 : 3.0),
+          classLossOverrides: g.classLossOverrides || {},
+          sliderAdditionPercent: g.sliderAdditionPercent,
+          sliderAddPercent: g.sliderAddPercent,
+          isSliderOverridden: g.isSliderOverridden,
+          pinBoxLossPercent: g.pinBoxLossPercent,
+          isPinBoxLossOverridden: g.isPinBoxLossOverridden,
+          pinBoxPerZipper: 1,
+          hBottomLossPercent: g.hBottomLossPercent,
+          isHBottomLossOverridden: g.isHBottomLossOverridden,
+          isSpecialUTopOrder: Boolean(g.isSpecialUTopOrder || (g.czParams && g.czParams.isSpecialUTopOrder)),
+          czParams: g.czParams || {},
+          mzParams: g.mzParams || {},
+          wireParams: g.wireParams || {},
+          pzParams: g.pzParams || {},
+          bomRows: v.bomRows || []
+        };
+        est.items.push(itemObj);
+      });
+    });
+
+    if (!appState.activeItemId && est.items.length > 0) {
+      appState.activeItemId = est.items[0].id;
+    }
+  } else {
+    appState.activeItemId = null;
+  }
+}
+
 // Application State
 let appState = {
   currentEstimate: {
     id: null,
     name: '',
     reference: 'EST-' + Math.floor(1000 + Math.random() * 9000),
+    items: [
+      {
+        id: 'item_1',
+        variantKey: 'cz_5',
+        displayName: 'CZ#5',
+        name: 'CZ#5',
+        category: 'cz',
+        zipperSize: '#5',
+        zipperType: 'closed_end',
+        length: 7.5,
+        lengthUnit: 'inch',
+        quantity: 1500,
+        color: '',
+        styleName: '',
+        remarks: '',
+        lossPercent: 3.0,
+        classLossOverrides: {},
+        sliderAdditionPercent: 8.0,
+        sliderAddPercent: 8.0,
+        isSliderOverridden: false,
+        pinBoxLossPercent: 4.0,
+        isPinBoxLossOverridden: false,
+        pinBoxPerZipper: 1,
+        hBottomLossPercent: undefined,
+        isHBottomLossOverridden: false,
+        isSpecialUTopOrder: false,
+        czParams: {},
+        mzParams: {},
+        wireParams: {},
+        pzParams: {},
+        bomRows: []
+      }
+    ],
     categoryGroups: [
       {
         id: 'categoryGroup_1',
-        name: 'Category Group 1',
-        category: '', // Starts empty for fresh user selection
+        name: 'CZ#5',
+        category: 'cz',
         styleName: '',
         color: '',
         remarks: '',
         lossPercent: 3.0,
         classLossOverrides: {},
+        sliderAdditionPercent: 8.0,
+        sliderAddPercent: 8.0,
+        isSliderOverridden: false,
+        pinBoxLossPercent: 4.0,
+        isPinBoxLossOverridden: false,
+        pinBoxPerZipper: 1,
+        hBottomLossPercent: undefined,
+        isHBottomLossOverridden: false,
+        isSpecialUTopOrder: false,
+        czParams: {},
+        mzParams: {},
+        wireParams: {},
+        pzParams: {},
         variants: [
           {
             id: 'var_1',
-            name: 'Variant 1',
+            name: 'CZ#5',
             zipperSize: '#5',
             zipperType: 'closed_end',
-            length: '',
+            length: 7.5,
             lengthUnit: 'inch',
-            quantity: '',
+            quantity: 1500,
             color: '',
             remarks: '',
             bomRows: []
@@ -51,12 +339,12 @@ let appState = {
     otherCosts: [],
     priceOverrides: {}
   },
+  activeItemId: 'item_1',
   selectedMaterialKey: null,
   selectedCalcDetailsGroupId: 'categoryGroup_1',
   lastCalculation: null,
   isFormulaDetailsCollapsed: false
 };
-
 
 if (typeof window !== 'undefined') {
   window.appState = appState;
@@ -71,6 +359,9 @@ document.addEventListener('DOMContentLoaded', () => {
  * Initialize Application
  */
 function initApp() {
+  // Sync state structures
+  syncStateItemsAndGroups();
+
   // Populate common form controls
   populateCommonForm();
 
@@ -88,7 +379,7 @@ function initApp() {
  * Populate common form inputs from appState
  */
 function populateCommonForm() {
-  // Category groups and variants are rendered in rebuildAndRenderAll
+  // Items and parameters are rendered in rebuildAndRenderAll
 }
 
 /**
@@ -118,7 +409,89 @@ function bindEvents() {
     });
   }
 
-  // Button: "+ Add New Category" (Global button below groups)
+  // Button: "+ Add New Item" (Top Toolbar)
+  const btnAddItem = document.getElementById('btn-add-item');
+  if (btnAddItem) {
+    btnAddItem.addEventListener('click', () => {
+      const selectVariant = document.getElementById('select-add-item-variant');
+      const vKey = selectVariant ? selectVariant.value : 'cz_5';
+      handleAddNewItem(vKey);
+    });
+  }
+
+  // Delegated Clicks & Inputs on Items Container
+  const itemsContainer = document.getElementById('items-container');
+  if (itemsContainer) {
+    itemsContainer.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.btn-remove-item');
+      if (removeBtn) {
+        e.stopPropagation();
+        const itemId = removeBtn.getAttribute('data-item-id');
+        handleRemoveItem(itemId);
+        return;
+      }
+
+      // If clicked inside an interactive form element, do not re-select/steal focus
+      if (e.target.closest('input, select, textarea, button, a')) {
+        const card = e.target.closest('.item-card');
+        if (card) {
+          const itemId = card.getAttribute('data-item-id');
+          if (itemId && appState.activeItemId !== itemId) {
+            selectActiveItem(itemId, false);
+          }
+        }
+        return;
+      }
+
+      // Clicking item card body selects this item as active
+      const card = e.target.closest('.item-card');
+      if (card) {
+        const itemId = card.getAttribute('data-item-id');
+        if (itemId) {
+          selectActiveItem(itemId, true);
+        }
+      }
+    });
+
+    ['input', 'keyup', 'change', 'paste'].forEach(evtName => {
+      itemsContainer.addEventListener(evtName, (e) => {
+        handleItemCardInput(e);
+      });
+    });
+  }
+
+  // Delegated Changes & Inputs on "Select Item" Configuration Panel
+  const selectItemBody = document.getElementById('select-item-config-body');
+  if (selectItemBody) {
+    selectItemBody.addEventListener('change', (e) => {
+      const target = e.target;
+      if (!target) return;
+
+      if (target.id === 'select-active-item-variant' || target.classList.contains('select-active-item-variant')) {
+        handleChangeActiveItemVariant(target.value);
+        return;
+      }
+
+      if (target.classList.contains('input-cz-utop-special')) {
+        const activeItem = getActiveItem();
+        if (activeItem) {
+          const isChecked = Boolean(target.checked);
+          activeItem.isSpecialUTopOrder = isChecked;
+          activeItem.czParams = activeItem.czParams || {};
+          activeItem.czParams.isSpecialUTopOrder = isChecked;
+          updateLiveCalculations();
+        }
+      }
+    });
+
+    ['input', 'change'].forEach(evtName => {
+      selectItemBody.addEventListener(evtName, (e) => {
+        handleSelectItemConfigInput(e);
+      });
+    });
+  }
+
+  // Legacy Button: "+ Add New Category" (calls handleAddNewItem)
   const btnAddCategoryGroup = document.getElementById('btn-add-category-group');
   if (btnAddCategoryGroup) {
     btnAddCategoryGroup.addEventListener('click', handleAddCategoryGroup);
@@ -128,15 +501,14 @@ function bindEvents() {
   const btnResetBOM = document.getElementById('btn-reset-bom');
   if (btnResetBOM) {
     btnResetBOM.addEventListener('click', () => {
-      if (confirm('Reset BOM recipes for all variants across all category groups to suggested defaults?')) {
-        appState.currentEstimate.categoryGroups.forEach(group => {
-          const cat = group.category || 'cz';
-          group.variants.forEach(v => {
-            v.bomRows = window.BOMRules ? window.BOMRules.generateSuggestedBOM(v, cat) : [];
-          });
+      if (confirm('Reset BOM recipes for all items to suggested defaults?')) {
+        const items = appState.currentEstimate.items || [];
+        items.forEach(item => {
+          const cat = item.category || 'cz';
+          item.bomRows = window.BOMRules ? window.BOMRules.generateSuggestedBOM(item, cat) : [];
         });
         rebuildAndRenderAll();
-        showToast('All variant BOM recipes reset to suggested defaults', 'info');
+        showToast('All item BOM recipes reset to suggested defaults', 'info');
       }
     });
   }
@@ -168,7 +540,6 @@ function bindEvents() {
   if (btnExportPDF) {
     btnExportPDF.addEventListener('click', handleExportPDF);
   }
-
 
   // Save Modal Form Submit
   const formSaveEstimate = document.getElementById('form-save-estimate');
@@ -217,7 +588,7 @@ function bindEvents() {
     });
   }
 
-  // Delegated Keystroke Listeners on Category Groups Container for instantaneous reactivity
+  // Delegated Keystroke Listeners on Category Groups Container for backward compatibility
   const catGroupsContainer = document.getElementById('category-groups-container');
   if (catGroupsContainer) {
     ['input', 'keyup', 'change', 'paste'].forEach(evtName => {
@@ -225,7 +596,6 @@ function bindEvents() {
         const target = e.target;
         if (!target) return;
 
-        // Check if event occurred on quantity or length input
         if (target.classList && (target.classList.contains('input-var-qty') || target.classList.contains('input-var-length'))) {
           const { groupId, varId } = getEventGroupAndVarIds(target);
           const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
@@ -252,7 +622,6 @@ function bindEvents() {
             v.length = numVal;
           }
 
-          // Clear class override if any
           if (group.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
             const classKey = window.CalculatorEngine.getVariantZipperClass(v, group.category);
             if (classKey && group.classLossOverrides[classKey] !== undefined) {
@@ -260,14 +629,12 @@ function bindEvents() {
             }
           }
 
-          // Instantly update variant loss cards on every keystroke
           try {
             updateClassLossDisplay(groupId);
           } catch (err) {
             console.error(err);
           }
 
-          // Refresh live calculations
           try {
             updateLiveCalculations();
           } catch (err) {
@@ -280,180 +647,655 @@ function bindEvents() {
 }
 
 /**
- * Handle adding a new independent Category Group
+ * Handle adding a new independent Item
+ * @param {string} [variantKey='cz_5']
  */
-function handleAddCategoryGroup() {
-  const groups = appState.currentEstimate.categoryGroups;
-  const nextGroupNum = groups.length + 1;
-  const uniqueId = 'categoryGroup_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
-
-  const newGroup = {
-    id: uniqueId,
-    name: `Category Group ${nextGroupNum}`,
-    category: '', // Empty category selection
-    styleName: '',
-    color: '',
-    remarks: '',
-    lossPercent: 3.0,
-    classLossOverrides: {},
-    sliderAdditionPercent: 8.0,
-    sliderAddPercent: 8.0,
-    isSliderOverridden: false,
-    pinBoxLossPercent: 8.0,
-    isPinBoxLossOverridden: false,
-    pinBoxPerZipper: 1,
-    hBottomLossPercent: 8.0,
-    isHBottomLossOverridden: false,
-    variants: [
-      {
-        id: 'var_' + Date.now() + '_1',
-        name: 'Variant 1',
-        zipperSize: '#5',
-        zipperType: 'closed_end',
-        length: '',
-        lengthUnit: 'inch',
-        quantity: '',
-        color: '',
-        remarks: '',
-        bomRows: []
-      }
-    ]
-  };
-
-  groups.push(newGroup);
-  appState.selectedCalcDetailsGroupId = uniqueId;
+function handleAddNewItem(variantKey = 'cz_5') {
+  if (!Array.isArray(appState.currentEstimate.items)) {
+    appState.currentEstimate.items = [];
+  }
+  const newItem = createItem(variantKey);
+  appState.currentEstimate.items.push(newItem);
+  appState.activeItemId = newItem.id;
+  appState.selectedCalcDetailsGroupId = newItem.id;
 
   rebuildAndRenderAll();
 
-  // Scroll to the newly added group card
-  const newCardEl = document.getElementById(`category-group-card-${uniqueId}`);
+  const newCardEl = document.getElementById(`item-card-${newItem.id}`);
   if (newCardEl) {
-    newCardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const selectCat = newCardEl.querySelector('.select-group-category');
-    if (selectCat) selectCat.focus();
+    if (typeof newCardEl.scrollIntoView === 'function') {
+      newCardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const lengthInput = newCardEl.querySelector('.input-item-length') || newCardEl.querySelector('.input-item-qty');
+    if (lengthInput && typeof lengthInput.focus === 'function') lengthInput.focus();
   }
 
-  showToast(`Added ${newGroup.name}. Select a category to begin.`, 'success');
+  showToast(`Added ${newItem.displayName}. Ready to configure.`, 'success');
 }
 
 /**
- * Handle removing a Category Group
- * @param {string} groupId 
+ * Handle removing an Item
+ * @param {string} itemId 
  */
-function handleRemoveCategoryGroup(groupId) {
-  const groups = appState.currentEstimate.categoryGroups;
-  if (groups.length <= 1) {
-    showToast('At least one Category Group must remain in the estimate.', 'warning');
+function handleRemoveItem(itemId) {
+  const items = appState.currentEstimate.items || [];
+  if (items.length <= 1) {
+    if (!confirm('Remove this item? The items list will be empty.')) return;
+    appState.currentEstimate.items = [];
+    appState.activeItemId = null;
+    appState.selectedCalcDetailsGroupId = null;
+    appState.selectedMaterialKey = null;
+    rebuildAndRenderAll();
+    showToast('All items removed.', 'info');
     return;
   }
 
-  const groupIdx = groups.findIndex(g => g.id === groupId);
-  if (groupIdx === -1) return;
+  const idx = items.findIndex(it => it.id === itemId);
+  if (idx === -1) return;
 
-  const targetGroup = groups[groupIdx];
-  const hasData = targetGroup.variants.some(v => (v.length && v.quantity));
-
-  if (hasData) {
-    if (!confirm(`Are you sure you want to remove "${targetGroup.name}" and its variants?`)) {
+  const targetItem = items[idx];
+  if (targetItem.length && targetItem.quantity) {
+    if (!confirm(`Are you sure you want to remove "${targetItem.displayName || targetItem.name}"?`)) {
       return;
     }
   }
 
-  groups.splice(groupIdx, 1);
+  items.splice(idx, 1);
 
-  // If deleted active details group, switch to first remaining group
-  if (appState.selectedCalcDetailsGroupId === groupId) {
-    appState.selectedCalcDetailsGroupId = groups[0] ? groups[0].id : null;
+  if (appState.activeItemId === itemId) {
+    appState.activeItemId = items[0] ? items[0].id : null;
+    appState.selectedCalcDetailsGroupId = appState.activeItemId;
   }
 
   rebuildAndRenderAll();
-  showToast(`Removed "${targetGroup.name}".`, 'info');
+  showToast(`Removed "${targetItem.displayName || targetItem.name}".`, 'info');
 }
 
 /**
- * Handle "+ Select Another Variant" inside a specific Category Group
+ * Update the active material shown in Calculation Details to follow the selected item
+ * @param {string} itemId
+ */
+function updateActiveMaterialForSelectedItem(itemId) {
+  const lastCalc = appState.lastCalculation;
+  if (!lastCalc) return;
+
+  // 1. Search categoryGroups matching itemId
+  if (Array.isArray(lastCalc.categoryGroups)) {
+    const group = lastCalc.categoryGroups.find(g => g.id === itemId);
+    if (group && group.materials && Array.isArray(group.materials.processedRows) && group.materials.processedRows.length > 0) {
+      const firstRow = group.materials.processedRows[0];
+      appState.selectedMaterialKey = firstRow.uniqueKey || `${group.id}__${firstRow.key || firstRow.id}`;
+      renderCalculationDetails();
+      return;
+    }
+  }
+
+  // 2. Search items in lastCalc matching itemId
+  if (Array.isArray(lastCalc.items)) {
+    const item = lastCalc.items.find(it => it.id === itemId);
+    if (item && item.materials && Array.isArray(item.materials.processedRows) && item.materials.processedRows.length > 0) {
+      const firstRow = item.materials.processedRows[0];
+      appState.selectedMaterialKey = firstRow.uniqueKey || `${item.id}__${firstRow.key || firstRow.id}`;
+      renderCalculationDetails();
+      return;
+    }
+  }
+
+  // 3. Fallback
+  renderCalculationDetails();
+}
+
+/**
+ * Select an active item card and switch the right-side configuration panel
+ * @param {string} itemId
+ * @param {boolean} [shouldFocus=false]
+ */
+function selectActiveItem(itemId, shouldFocus = false) {
+  appState.activeItemId = itemId;
+  appState.selectedCalcDetailsGroupId = itemId;
+
+  // Update visual state on cards
+  const container = document.getElementById('items-container');
+  if (container) {
+    container.querySelectorAll('.item-card').forEach(card => {
+      const isCardActive = card.getAttribute('data-item-id') === itemId;
+      if (isCardActive) {
+        card.classList.add('is-active-item');
+        if (!card.querySelector('.item-active-pill')) {
+          const titleWrap = card.querySelector('.item-card-header-left');
+          if (titleWrap) {
+            const pill = document.createElement('span');
+            pill.className = 'badge badge-primary text-2xs font-bold px-2 py-0.5 item-active-pill';
+            pill.textContent = 'ACTIVE';
+            titleWrap.appendChild(pill);
+          }
+        }
+      } else {
+        card.classList.remove('is-active-item');
+        const pill = card.querySelector('.item-active-pill');
+        if (pill) pill.remove();
+      }
+    });
+  }
+
+  // Re-render the right-side Select Item configuration panel
+  renderSelectItemPanel();
+
+  // Switch Calculation Details to this item
+  updateActiveMaterialForSelectedItem(itemId);
+}
+
+/**
+ * Switch the variant type of the currently active item
+ * @param {string} newVariantKey
+ */
+function handleChangeActiveItemVariant(newVariantKey) {
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  const vDef = getVariantDef(newVariantKey);
+  if (!vDef) return;
+
+  activeItem.variantKey = vDef.key;
+  activeItem.category = vDef.category;
+  activeItem.zipperSize = vDef.size;
+  activeItem.displayName = vDef.displayName;
+  activeItem.name = vDef.displayName;
+
+  if (window.BOMRules) {
+    activeItem.allowance = window.BOMRules.getSuggestedAllowance(activeItem.category, activeItem.zipperSize, activeItem.lengthUnit, activeItem.zipperType);
+    activeItem.bomRows = window.BOMRules.generateSuggestedBOM(activeItem, activeItem.category);
+  }
+
+  activeItem.classLossOverrides = {};
+  if (activeItem.category === 'wire') {
+    activeItem.lossPercent = activeItem.zipperSize === '#3' ? 4.0 : 5.0;
+  } else {
+    activeItem.lossPercent = 3.0;
+  }
+
+  if (Array.isArray(activeItem.variants) && activeItem.variants.length > 0) {
+    activeItem.variants[0].zipperSize = vDef.size;
+    activeItem.variants[0].name = vDef.displayName;
+    activeItem.variants[0].allowance = activeItem.allowance;
+    activeItem.variants[0].bomRows = activeItem.bomRows || [];
+  }
+
+  rebuildAndRenderAll();
+  showToast(`Switched active item to ${vDef.displayName}`, 'info');
+}
+
+/**
+ * Handle real-time keystroke and input events on item cards
+ * @param {Event} e
+ */
+function handleItemCardInput(e) {
+  const target = e.target;
+  if (!target) return;
+
+  const itemId = target.getAttribute('data-item-id') || target.getAttribute('data-group-id');
+  if (!itemId) return;
+
+  const item = (appState.currentEstimate.items || []).find(it => it.id === itemId);
+  if (!item) return;
+
+  if (target.classList.contains('input-item-qty') || target.classList.contains('input-var-qty')) {
+    item.quantity = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+    if (!item.isSliderOverridden) {
+      const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+      if (getSliderDefault) {
+        const dynSliderAdd = getSliderDefault(Math.max(0, Number(item.quantity) || 0));
+        item.sliderAdditionPercent = dynSliderAdd;
+        item.sliderAddPercent = dynSliderAdd;
+        const sliderInput = document.getElementById(`input-slider-${item.id}`);
+        if (sliderInput) sliderInput.value = dynSliderAdd;
+      }
+    }
+    if (!item.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
+      const pinBoxQty = (item.zipperType === 'open_end' || item.zipperType === 'two_way') ? Math.max(0, Number(item.quantity) || 0) : 0;
+      const dynPinBox = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxQty > 0 ? pinBoxQty : Math.max(0, Number(item.quantity) || 0));
+      item.pinBoxLossPercent = dynPinBox;
+      const pinBoxInput = document.getElementById(`input-pin-box-${item.id}`);
+      if (pinBoxInput) pinBoxInput.value = dynPinBox;
+    }
+    if (item.category === 'mz' && String(item.zipperSize || '').includes('3') && !item.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+      const dynHBottom = window.CalculatorEngine.getHBottomDynamicLossPercentage(Math.max(0, Number(item.quantity) || 0));
+      item.hBottomLossPercent = dynHBottom;
+      item.mzParams = item.mzParams || {};
+      item.mzParams.hBottomLossPercent = dynHBottom;
+      const hBottomInput = document.getElementById(`mz-hbottom-loss-${item.id}`);
+      if (hBottomInput && !hBottomInput.disabled) hBottomInput.value = dynHBottom;
+    }
+  } else if (target.classList.contains('input-item-length') || target.classList.contains('input-var-length')) {
+    item.length = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+  } else if (target.classList.contains('input-item-unit') || target.classList.contains('input-var-unit')) {
+    item.lengthUnit = target.value;
+    if (window.BOMRules) {
+      item.allowance = window.BOMRules.getSuggestedAllowance(item.category, item.zipperSize, item.lengthUnit, item.zipperType);
+    }
+  } else if (target.classList.contains('input-item-type') || target.classList.contains('input-var-type')) {
+    item.zipperType = target.value;
+    if (window.BOMRules) {
+      item.allowance = window.BOMRules.getSuggestedAllowance(item.category, item.zipperSize, item.lengthUnit, item.zipperType);
+      item.bomRows = window.BOMRules.generateSuggestedBOM(item, item.category);
+    }
+  } else if (target.classList.contains('input-item-loss') || target.classList.contains('input-var-loss')) {
+    if (target.value !== '') {
+      const classKey = target.getAttribute('data-class');
+      item.classLossOverrides = item.classLossOverrides || {};
+      if (classKey) item.classLossOverrides[classKey] = parseFloat(target.value) || 0;
+      item.lossPercent = parseFloat(target.value) || 0;
+    } else {
+      const classKey = target.getAttribute('data-class');
+      if (item.classLossOverrides && classKey) {
+        delete item.classLossOverrides[classKey];
+      }
+    }
+  } else if (target.classList.contains('input-item-color')) {
+    item.color = target.value;
+  } else if (target.classList.contains('input-item-remarks')) {
+    item.remarks = target.value;
+  }
+
+  try {
+    updateClassLossDisplay(item.id);
+  } catch (err) {
+    console.error(err);
+  }
+
+  try {
+    updateLiveCalculations();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/**
+ * Handle real-time parameter changes inside the right-side Select Item configuration panel
+ * @param {Event} e
+ */
+function handleSelectItemConfigInput(e) {
+  const target = e.target;
+  if (!target) return;
+
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  // 1. Slider Add %
+  if (target.classList.contains('input-group-slider-add')) {
+    if (target.value !== '') {
+      activeItem.isSliderOverridden = true;
+      activeItem.sliderAdditionPercent = parseFloat(target.value) || 0;
+      activeItem.sliderAddPercent = parseFloat(target.value) || 0;
+    } else {
+      activeItem.isSliderOverridden = false;
+      const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
+      const dynSlider = getSliderDefault ? getSliderDefault(Math.max(0, Number(activeItem.quantity) || 0)) : 8.0;
+      activeItem.sliderAdditionPercent = dynSlider;
+      activeItem.sliderAddPercent = dynSlider;
+    }
+    updateLiveCalculations();
+    return;
+  }
+
+  // 2. Pin Box Loss %
+  if (target.classList.contains('input-group-pin-box')) {
+    if (target.value !== '') {
+      activeItem.isPinBoxLossOverridden = true;
+      activeItem.pinBoxLossPercent = parseFloat(target.value) || 0;
+    } else {
+      activeItem.isPinBoxLossOverridden = false;
+      const dynPin = window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage
+        ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(Math.max(0, Number(activeItem.quantity) || 0))
+        : 4.0;
+      activeItem.pinBoxLossPercent = dynPin;
+    }
+    updateLiveCalculations();
+    return;
+  }
+
+  // 3. CZ Parameters
+  if (target.classList.contains('input-cz-param')) {
+    const paramName = target.getAttribute('data-param');
+    if (paramName) {
+      activeItem.czParams = activeItem.czParams || {};
+      if (target.value !== '') {
+        const val = parseFloat(target.value);
+        if (!isNaN(val)) {
+          if (paramName.toLowerCase().includes('divisor') || paramName.toLowerCase().includes('div')) {
+            activeItem.czParams[paramName] = val > 0 ? val : undefined;
+          } else {
+            activeItem.czParams[paramName] = val >= 0 ? val : 0;
+          }
+        }
+      } else {
+        delete activeItem.czParams[paramName];
+      }
+      updateLiveCalculations();
+    }
+    return;
+  }
+
+  // 4. MZ Parameters
+  if (target.classList.contains('input-mz-param')) {
+    const paramName = target.getAttribute('data-param');
+    if (paramName) {
+      activeItem.mzParams = activeItem.mzParams || {};
+      if (paramName === 'hBottomLossPercent') {
+        if (target.value !== '') {
+          activeItem.isHBottomLossOverridden = true;
+          activeItem.hBottomLossPercent = parseFloat(target.value) || 0;
+          activeItem.mzParams.hBottomLossPercent = parseFloat(target.value) || 0;
+        } else {
+          activeItem.isHBottomLossOverridden = false;
+          delete activeItem.hBottomLossPercent;
+          delete activeItem.mzParams.hBottomLossPercent;
+        }
+      } else {
+        if (target.value !== '') {
+          activeItem.mzParams[paramName] = parseFloat(target.value);
+        } else {
+          delete activeItem.mzParams[paramName];
+        }
+      }
+      updateLiveCalculations();
+    }
+    return;
+  }
+
+  // 5. Wire Parameters
+  if (target.classList.contains('input-wire-param')) {
+    const paramName = target.getAttribute('data-param');
+    if (paramName) {
+      activeItem.wireParams = activeItem.wireParams || {};
+      if (target.value !== '') {
+        const val = parseFloat(target.value);
+        if (!isNaN(val)) {
+          if (paramName.toLowerCase().includes('divisor') || paramName.toLowerCase().includes('div')) {
+            activeItem.wireParams[paramName] = val > 0 ? val : undefined;
+          } else {
+            activeItem.wireParams[paramName] = val >= 0 ? val : 0;
+          }
+        }
+      } else {
+        delete activeItem.wireParams[paramName];
+      }
+      updateLiveCalculations();
+    }
+    return;
+  }
+
+  // 6. PZ Parameters
+  if (target.classList.contains('input-pz-param')) {
+    const paramName = target.getAttribute('data-param');
+    if (paramName) {
+      activeItem.pzParams = activeItem.pzParams || {};
+      if (target.value !== '') {
+        const val = parseFloat(target.value);
+        if (!isNaN(val)) {
+          if (paramName.toLowerCase().includes('divisor') || paramName.toLowerCase().includes('div')) {
+            activeItem.pzParams[paramName] = val > 0 ? val : undefined;
+          } else {
+            activeItem.pzParams[paramName] = val >= 0 ? val : 0;
+          }
+        }
+      } else {
+        delete activeItem.pzParams[paramName];
+      }
+      updateLiveCalculations();
+    }
+    return;
+  }
+
+  // 7. Metadata (Style, Color, Remarks)
+  if (target.classList.contains('input-group-style')) activeItem.styleName = target.value;
+  if (target.classList.contains('input-group-color')) activeItem.color = target.value;
+  if (target.classList.contains('input-group-remarks')) activeItem.remarks = target.value;
+}
+
+/**
+ * Handle adding a new independent Category Group (Legacy wrapper)
+ */
+function handleAddCategoryGroup() {
+  const selectAdd = document.getElementById('select-add-item-variant');
+  const variantKey = selectAdd ? selectAdd.value : 'cz_5';
+  handleAddNewItem(variantKey);
+}
+
+/**
+ * Handle removing a Category Group (Legacy wrapper)
+ * @param {string} groupId 
+ */
+function handleRemoveCategoryGroup(groupId) {
+  handleRemoveItem(groupId);
+}
+
+/**
+ * Handle adding variant to group (Legacy wrapper)
  * @param {string} groupId 
  */
 function handleAddVariantToGroup(groupId) {
-  const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
-  if (!group) return;
-
-  const cat = group.category || 'cz';
-  const variants = group.variants;
-  const nextNum = variants.length + 1;
-  const prevVar = variants[variants.length - 1] || {};
-
-  const size = prevVar.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
-  const unit = prevVar.lengthUnit || 'inch';
-  const type = prevVar.zipperType || 'closed_end';
-
-  const newVariant = {
-    id: 'var_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-    name: `Variant ${nextNum}`,
-    zipperSize: size,
-    zipperType: type,
-    length: (prevVar.length !== undefined && prevVar.length !== '') ? (Number(prevVar.length) + 0.25) : '',
-    lengthUnit: unit,
-    quantity: (prevVar.quantity !== undefined && prevVar.quantity !== '') ? prevVar.quantity : '',
-    color: prevVar.color || '',
-    remarks: '',
-    bomRows: []
-  };
-
-  if (window.BOMRules) {
-    newVariant.bomRows = window.BOMRules.generateSuggestedBOM(newVariant, cat);
-  }
-
-  variants.push(newVariant);
-  rebuildAndRenderAll();
-
-  // Scroll to the newly added variant
-  const newEl = document.getElementById(`variant-card-${newVariant.id}`);
-  if (newEl) {
-    newEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const lengthInput = newEl.querySelector('.input-var-length');
-    if (lengthInput) lengthInput.focus();
-  }
-
-  showToast(`Added ${newVariant.name} inside ${group.name}`, 'success');
+  handleAddNewItem('cz_5');
 }
 
 /**
- * Handle removing a variant from a specific Category Group
+ * Handle removing variant from group (Legacy wrapper)
  * @param {string} groupId 
  * @param {string} variantId 
  */
 function handleRemoveVariantFromGroup(groupId, variantId) {
-  const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
-  if (!group) return;
-
-  if (group.variants.length <= 1) {
-    showToast('Each Category Group must have at least one variant.', 'warning');
-    return;
-  }
-
-  const idx = group.variants.findIndex(v => v.id === variantId);
-  if (idx !== -1) {
-    const removedName = group.variants[idx].name;
-    group.variants.splice(idx, 1);
-    rebuildAndRenderAll();
-    showToast(`Removed ${removedName} from ${group.name}`, 'info');
-  }
+  handleRemoveItem(groupId || variantId);
 }
 
 /**
  * Master UI rebuild and recalculation function
  */
 function rebuildAndRenderAll() {
-  // 1. Render all Category Groups and their Variants
+  // 1. Sync state between items and category groups
+  syncStateItemsAndGroups();
+
+  // 2. Render independent items list on left
+  renderItemsList();
+
+  // 3. Render reusable "Select Item" configuration panel on right
+  renderSelectItemPanel();
+
+  // 4. Populate category groups container for backward compatibility
   renderCategoryGroups();
 
-  // 2. Run master calculations across all independent groups and build merged BOM
+  // 5. Run master calculations across all independent items and build merged BOM
   updateLiveCalculations();
 }
 
 /**
- * Render all Category Groups into the Product Information container
+ * Render independent items list into the left-side items container
+ */
+function renderItemsList() {
+  const container = document.getElementById('items-container');
+  const countBadge = document.getElementById('items-count-badge');
+  const countDisplay = document.getElementById('items-count-display');
+
+  const items = (appState.currentEstimate && Array.isArray(appState.currentEstimate.items))
+    ? appState.currentEstimate.items
+    : [];
+
+  if (countBadge) countBadge.textContent = items.length;
+  if (countDisplay) countDisplay.innerHTML = `Items (<span id="items-count-badge">${items.length}</span>)`;
+
+  if (!container) return;
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state p-6 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+        <svg class="w-10 h-10 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:40px;height:40px;">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        </svg>
+        <p class="font-medium text-slate-700 text-sm mb-1">No Items Configured</p>
+        <p class="text-xs text-muted">Select an item variant from the toolbar above and click <strong>+ Add New Item</strong> to begin.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+
+  container.innerHTML = items.map((item, idx) => {
+    const isActive = item.id === appState.activeItemId;
+    const cat = item.category || 'cz';
+    const size = item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
+    const unit = item.lengthUnit || 'inch';
+    const type = item.zipperType || 'closed_end';
+
+    let classKey = '';
+    let isEligible = false;
+    let lossDisplayVal = '';
+    let consumptionDisplay = '0';
+
+    if (calcEng && calcEng.getVariantZipperClass) {
+      classKey = calcEng.getVariantZipperClass(item, cat);
+      isEligible = calcEng.isClassEligibleForDynamicLoss ? calcEng.isClassEligibleForDynamicLoss(classKey) : false;
+      const groupParams = item.czParams || item.mzParams || item.pzParams || item.wireParams || {};
+      const consolidation = calcEng.consolidateGroupClasses ? calcEng.consolidateGroupClasses([item], cat, groupParams, item.classLossOverrides) : {};
+      const cInfo = consolidation[classKey];
+
+      if (cInfo) {
+        if (cInfo.isOverridden && cInfo.overrideVal !== null) {
+          lossDisplayVal = cInfo.overrideVal;
+        } else if (isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+          lossDisplayVal = cInfo.defaultLossPercent;
+        }
+        consumptionDisplay = Math.round(cInfo.baseChainMtr || 0).toLocaleString('en-US');
+      }
+    }
+
+    return `
+      <div class="item-card mb-3 ${isActive ? 'is-active-item' : ''}" id="item-card-${item.id}" data-item-id="${item.id}">
+        <div class="item-card-header flex items-center justify-between p-3 border-b border-slate-100 bg-slate-50/70">
+          <div class="item-card-header-left flex items-center gap-2">
+            <span class="item-index-badge">${idx + 1}</span>
+            <strong class="item-variant-title text-sm font-bold text-slate-800">${escapeHtml(item.displayName || item.name)}</strong>
+            ${isActive ? '<span class="badge badge-primary text-2xs font-bold px-2 py-0.5 item-active-pill">ACTIVE</span>' : ''}
+          </div>
+          <div class="flex items-center gap-2">
+            ${items.length > 1 ? `
+              <button type="button" class="btn btn-xs btn-ghost text-rose-500 hover:text-rose-700 btn-remove-item" data-item-id="${item.id}" title="Remove this Item">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="item-card-body p-3">
+          <div class="form-grid-5">
+            <!-- Zipper Type -->
+            ${cat !== 'wire' ? `
+              <div class="form-group mb-0">
+                <label class="form-label text-xs font-semibold mb-1">Zipper Type <span class="text-rose-500">*</span></label>
+                <select class="form-select form-select-sm input-item-type input-var-type" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}">
+                  <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
+                  <option value="open_end" ${type === 'open_end' ? 'selected' : ''}>Open End</option>
+                  <option value="two_way" ${type === 'two_way' ? 'selected' : ''}>Two-Way Open</option>
+                  ${cat === 'cz' ? `<option value="invisible" ${type === 'invisible' ? 'selected' : ''}>Invisible</option>` : ''}
+                  <option value="continuous" ${type === 'continuous' ? 'selected' : ''}>Continuous Chain</option>
+                </select>
+              </div>
+            ` : `
+              <div class="form-group mb-0">
+                <label class="form-label text-xs font-semibold mb-1">Color / Note</label>
+                <input type="text" class="form-input form-input-sm input-item-color" data-item-id="${item.id}" placeholder="e.g. Golden / Brass" value="${escapeHtml(item.color || '')}">
+              </div>
+            `}
+
+            <!-- Finished Length & Unit -->
+            <div class="form-group mb-0">
+              <label class="form-label text-xs font-semibold mb-1">Finished Length <span class="text-rose-500">*</span></label>
+              <div class="input-with-addon-right">
+                <input type="number" class="form-input form-input-sm font-mono input-item-length input-var-length" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}" value="${item.length !== undefined && item.length !== null ? item.length : ''}" step="any" min="0" placeholder="0">
+                <select class="form-select form-select-sm input-addon-select input-item-unit input-var-unit" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}">
+                  <option value="inch" ${unit === 'inch' ? 'selected' : ''}>Inch</option>
+                  <option value="cm" ${unit === 'cm' ? 'selected' : ''}>cm</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Order Quantity -->
+            <div class="form-group mb-0">
+              <label class="form-label text-xs font-semibold mb-1">Order Quantity <span class="text-rose-500">*</span></label>
+              <div class="input-with-addon">
+                <input type="number" class="form-input form-input-sm font-mono input-item-qty input-var-qty" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}" value="${item.quantity !== undefined && item.quantity !== null ? item.quantity : ''}" min="0" step="1" placeholder="0">
+                <span class="input-addon input-addon-right text-xs">pcs</span>
+              </div>
+            </div>
+
+            <!-- Product / Style Note (if not wire) -->
+            ${cat !== 'wire' ? `
+              <div class="form-group mb-0">
+                <label class="form-label text-xs font-semibold mb-1">Color / Note</label>
+                <input type="text" class="form-input form-input-sm input-item-color" data-item-id="${item.id}" placeholder="e.g. Black / #01" value="${escapeHtml(item.color || '')}">
+              </div>
+            ` : `
+              <div class="form-group mb-0">
+                <label class="form-label text-xs font-semibold mb-1">Remarks</label>
+                <input type="text" class="form-input form-input-sm input-item-remarks" data-item-id="${item.id}" placeholder="e.g. Special order" value="${escapeHtml(item.remarks || '')}">
+              </div>
+            `}
+
+            <!-- Loss % Column -->
+            <div class="form-group mb-0 variant-loss-col" id="var-loss-col-${item.id}">
+              <label class="form-label text-xs font-semibold mb-1 flex items-center justify-between" for="input-item-loss-${item.id}">
+                <span>Loss %</span>
+                <span class="badge ${isEligible ? 'badge-primary' : 'badge-secondary'} text-3xs font-bold font-mono var-class-badge" title="${classKey ? `Zipper Class: ${classKey}` : '—'}">${escapeHtml(classKey || '—')}</span>
+              </label>
+              <div class="input-with-addon">
+                <input type="number" id="input-item-loss-${item.id}" class="form-input form-input-sm font-mono input-item-loss input-var-loss" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}" data-class="${escapeHtml(classKey)}" value="${lossDisplayVal}" placeholder="${isEligible ? '0' : '—'}" min="0" max="100" step="0.5">
+                <span class="input-addon input-addon-right text-xs">%</span>
+              </div>
+              <div class="variant-loss-meta mt-1 flex flex-col gap-0.5 text-3xs font-mono">
+                <span class="var-loss-mtr-text text-slate-600">Base Chain: <strong class="var-loss-pool-val font-bold">${consumptionDisplay} Mtr</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/**
+ * Render reusable "Select Item" configuration panel on the right side
+ */
+function renderSelectItemPanel() {
+  const body = document.getElementById('select-item-config-body');
+  const badgeWrap = document.getElementById('active-item-badge-wrapper');
+  if (!body) return;
+
+  const activeItem = getActiveItem();
+  if (!activeItem) {
+    if (badgeWrap) badgeWrap.innerHTML = '';
+    body.innerHTML = `
+      <div class="empty-state p-6 text-center text-slate-500">
+        <p class="font-medium text-slate-700 mb-1">No Item Selected</p>
+        <p class="text-xs text-muted">Select an item on the left or click <strong>+ Add New Item</strong> to configure its parameters.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (badgeWrap) {
+    badgeWrap.innerHTML = `<span class="badge badge-primary font-mono font-bold text-xs px-2.5 py-1">${escapeHtml(activeItem.displayName || activeItem.name)}</span>`;
+  }
+
+  // Render the configuration HTML for activeItem
+  body.innerHTML = buildCategoryGroupHTML(activeItem, 0, 1);
+
+  // Attach live listeners for the configuration inputs
+  bindCategoryGroupEventListeners();
+}
+
+/**
+ * Render all Category Groups into the Product Information container (Legacy alias)
  */
 function renderCategoryGroups() {
   const container = document.getElementById('category-groups-container');
@@ -461,7 +1303,7 @@ function renderCategoryGroups() {
 
   const groups = appState.currentEstimate.categoryGroups;
   if (!Array.isArray(groups) || groups.length === 0) {
-    container.innerHTML = `<div class="empty-state">No category groups defined. Click "+ Add New Category" below to start.</div>`;
+    container.innerHTML = `<div class="empty-state">No items defined. Click "+ Add New Item" above to start.</div>`;
     return;
   }
 
@@ -876,8 +1718,19 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
 
   const previews = getCategoryParamPreviewData(group);
 
+  const effectiveVariants = (Array.isArray(group.variants) && group.variants.length > 0)
+    ? group.variants
+    : [{
+        id: `var_${group.id}`,
+        zipperSize: group.zipperSize || (cat === 'wire' ? '#5_normal' : '#5'),
+        zipperType: group.zipperType || 'closed_end',
+        length: group.length !== undefined && group.length !== null ? group.length : 7.5,
+        lengthUnit: group.lengthUnit || 'inch',
+        quantity: group.quantity !== undefined && group.quantity !== null ? group.quantity : 1000
+      }];
+
   // MZ multi-variant detection
-  const mzVariants = group.variants || [];
+  const mzVariants = effectiveVariants;
   const hasMz5 = mzVariants.some(v => String(v.zipperSize || '').includes('5'));
   const hasMz3 = mzVariants.some(v => String(v.zipperSize || '').includes('3'));
   const primaryMzSize = (hasMz5 && !hasMz3) ? '#5' : (hasMz3 && !hasMz5 ? '#3' : ((mzVariants.length > 0 && mzVariants[0].zipperSize && mzVariants[0].zipperSize.includes('5')) ? '#5' : '#3'));
@@ -889,7 +1742,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
 
   // CZ multi-variant detection
   const czParams = (group.czParams && typeof group.czParams === 'object') ? group.czParams : {};
-  const czVariants = group.variants || [];
+  const czVariants = effectiveVariants;
   const hasCz5 = czVariants.some(v => String(v.zipperSize || '').includes('5'));
   const hasCz3 = czVariants.some(v => String(v.zipperSize || '').includes('3'));
   const primaryCzSize = (hasCz5 && !hasCz3) ? '#5' : (hasCz3 && !hasCz5 ? '#3' : ((czVariants.length > 0 && czVariants[0].zipperSize && czVariants[0].zipperSize.includes('5')) ? '#5' : '#3'));
@@ -907,7 +1760,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
 
   // WIRE multi-variant detection
   const wireParams = (group.wireParams && typeof group.wireParams === 'object') ? group.wireParams : {};
-  const wireVariants = group.variants || [];
+  const wireVariants = effectiveVariants;
   const hasWireLong = wireVariants.some(v => String(v.zipperSize || '').includes('long'));
   const hasWireNormal = wireVariants.some(v => String(v.zipperSize || '').includes('normal') || (!String(v.zipperSize || '').includes('long') && !String(v.zipperSize || '').includes('3')));
   const hasWire3 = wireVariants.some(v => String(v.zipperSize || '').includes('3'));
@@ -939,7 +1792,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
 
   // PZ multi-variant detection
   const pzParams = (group.pzParams && typeof group.pzParams === 'object') ? group.pzParams : {};
-  const pzVariants = group.variants || [];
+  const pzVariants = effectiveVariants;
   const primaryPzVariant = pzVariants[0] || null;
   const hasPz8 = pzVariants.some(v => String(v.zipperSize || '').includes('8'));
   const hasPz3 = pzVariants.some(v => String(v.zipperSize || '').includes('3'));
@@ -1014,51 +1867,72 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
       ? currentHBottomParam
       : defaultHBottomLoss);
 
+  const vSize = (group.variants && group.variants[0] && group.variants[0].zipperSize) || group.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
+  let currentVariantKey = group.variantKey || '';
+  if (!currentVariantKey) {
+    if (cat === 'cz') currentVariantKey = (vSize === '#3' ? 'cz_3' : 'cz_5');
+    else if (cat === 'mz') currentVariantKey = (vSize === '#3' ? 'mz_3' : (vSize === '#4' ? 'mz_4' : 'mz_5'));
+    else if (cat === 'pz') currentVariantKey = (vSize === '#3' ? 'pz_3' : (vSize === '#8' ? 'pz_8' : 'pz_5'));
+    else if (cat === 'wire') currentVariantKey = (vSize === '#3' ? 'wire_3' : (vSize === '#5_long' ? 'wire_5_long' : 'wire_5_normal'));
+    else currentVariantKey = 'cz_5';
+  }
+
   return `
     <div class="category-group-header">
       <div class="category-group-title-area">
-        <span class="group-number-pill">Group ${gIdx + 1}</span>
-        <h3 class="group-title-text">${escapeHtml(group.name || `Category Group ${gIdx + 1}`)}</h3>
+        <span class="group-number-pill">Item</span>
+        <h3 class="group-title-text">${escapeHtml(group.displayName || group.name || 'Select Item')}</h3>
         <span class="badge ${catBadgeClass}">${catBadge}</span>
       </div>
 
       <div class="category-group-header-actions">
         ${totalGroupsCount > 1 ? `
-          <button type="button" class="btn btn-sm btn-ghost btn-remove-category-group" data-group-id="${group.id}" title="Remove this Category Group">
+          <button type="button" class="btn btn-sm btn-ghost btn-remove-category-group btn-remove-item" data-group-id="${group.id}" data-item-id="${group.id}" title="Remove this Item">
             <svg class="w-4 h-4 text-rose-500 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
-            Remove Group
+            Remove Item
           </button>
         ` : ''}
       </div>
     </div>
 
     <div class="category-group-body">
-      <!-- Category & Factory Parameters Configuration Card -->
+      <!-- Item Variant & Factory Parameters Configuration Card -->
       <div class="category-selector-wrapper mb-3">
         <div class="category-selector-header">
           <h4 class="category-selector-heading">
             <svg class="w-4 h-4 text-indigo-400 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10M7 11h10M7 15h10M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
             </svg>
-            Zipper Category <span class="text-rose-400 font-bold">*</span>
+            Select Item <span class="text-rose-400 font-bold">*</span>
           </h4>
-          <p class="category-selector-subtext">Select manufacturing formula family for this independent category group</p>
+          <p class="category-selector-subtext">Configure item variant and production parameters</p>
         </div>
 
         <div class="category-controls-grid">
-          <!-- 1. Zipper Category Field -->
+          <!-- 1. Select Item Field -->
           <div class="category-control-item category-control-main">
             <label class="category-control-label" for="select-cat-${group.id}">
-              Zipper Category
+              Select Item
             </label>
-            <select id="select-cat-${group.id}" class="form-select select-group-category category-styled-select" data-group-id="${group.id}">
-              <option value="" ${!cat ? 'selected' : ''} disabled>-- Select Category --</option>
-              <option value="cz" ${cat === 'cz' ? 'selected' : ''}>Nylon Zipper (CZ)</option>
-              <option value="mz" ${cat === 'mz' ? 'selected' : ''}>Metal Zipper (MZ)</option>
-              <option value="wire" ${cat === 'wire' ? 'selected' : ''}>Brass / Metal Wire (WIRE)</option>
-              <option value="pz" ${cat === 'pz' ? 'selected' : ''}>Plastic Zipper (PZ)</option>
+            <select id="select-cat-${group.id}" class="form-select select-group-category category-styled-select select-active-item-variant" data-group-id="${group.id}" data-item-id="${group.id}">
+              <option value="cz_5" ${currentVariantKey === 'cz_5' ? 'selected' : ''}>CZ#5</option>
+              <option value="cz_3" ${currentVariantKey === 'cz_3' ? 'selected' : ''}>CZ#3</option>
+              <option value="mz_3" ${currentVariantKey === 'mz_3' ? 'selected' : ''}>MZ#3</option>
+              <option value="mz_4" ${currentVariantKey === 'mz_4' ? 'selected' : ''}>MZ#4</option>
+              <option value="mz_5" ${currentVariantKey === 'mz_5' ? 'selected' : ''}>MZ#5</option>
+              <option value="pz_3" ${currentVariantKey === 'pz_3' ? 'selected' : ''}>PZ#3</option>
+              <option value="pz_5" ${currentVariantKey === 'pz_5' ? 'selected' : ''}>PZ#5</option>
+              <option value="pz_8" ${currentVariantKey === 'pz_8' ? 'selected' : ''}>PZ#8</option>
+              <option value="wire_3" ${currentVariantKey === 'wire_3' ? 'selected' : ''}>WIRE#3</option>
+              <option value="wire_5_normal" ${currentVariantKey === 'wire_5_normal' ? 'selected' : ''}>WIRE#5 Normal Teeth</option>
+              <option value="wire_5_long" ${currentVariantKey === 'wire_5_long' ? 'selected' : ''}>WIRE#5 Long Teeth</option>
+              <!-- Legacy category aliases for backward compatibility -->
+              <option value="cz" style="display:none;" ${cat === 'cz' && !currentVariantKey ? 'selected' : ''}>Nylon Zipper (CZ)</option>
+              <option value="mz" style="display:none;" ${cat === 'mz' && !currentVariantKey ? 'selected' : ''}>Metal Zipper (MZ)</option>
+              <option value="wire" style="display:none;" ${cat === 'wire' && !currentVariantKey ? 'selected' : ''}>Brass / Metal Wire (WIRE)</option>
+              <option value="pz" style="display:none;" ${cat === 'pz' && !currentVariantKey ? 'selected' : ''}>Plastic Zipper (PZ)</option>
             </select>
           </div>
 
@@ -1590,27 +2464,8 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
         </div>
       </div>
 
-      <!-- Variants for this Category Group -->
-      <div class="group-variants-wrapper">
-        <div class="group-variants-header flex items-center justify-between mb-2">
-          <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Variants (${group.variants.length})
-          </span>
-        </div>
-
-        <div class="variants-container" id="variants-container-${group.id}">
-          ${group.variants.map((v, vIdx) => buildVariantCardHTML(v, vIdx, group)).join('')}
-        </div>
-
-        <div class="add-variant-wrapper mt-3">
-          <button type="button" class="btn btn-sm btn-add-variant-to-group" data-group-id="${group.id}" title="Add another variant inside ${escapeHtml(group.name)}">
-            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-            </svg>
-            + Select Another Variant
-          </button>
-        </div>
-      </div>
+      <!-- Class Loss Section -->
+      ${buildClassLossSectionHTML(group)}
     </div>
   `;
 }
@@ -2571,7 +3426,42 @@ function findActiveMaterial(targetKey) {
     }
   }
 
-  // 3. Fallback: Return first available material from the first active category group
+  // 3. Fallback: Return first available material from the active item / category group
+  const activeGroupId = appState.activeItemId || appState.selectedCalcDetailsGroupId;
+  if (activeGroupId && Array.isArray(lastCalc.categoryGroups)) {
+    const activeGroup = lastCalc.categoryGroups.find(g => g.id === activeGroupId);
+    if (activeGroup && activeGroup.materials && Array.isArray(activeGroup.materials.processedRows) && activeGroup.materials.processedRows.length > 0) {
+      const first = activeGroup.materials.processedRows[0];
+      const rowUniqueKey = first.uniqueKey || `${activeGroup.id}__${first.key || first.id}`;
+      return {
+        ...first,
+        uniqueKey: rowUniqueKey,
+        groupId: first.groupId || activeGroup.id,
+        groupName: first.groupName || activeGroup.name,
+        groupCategory: first.groupCategory || activeGroup.category,
+        groupStyleName: first.groupStyleName || activeGroup.styleName,
+        groupColor: first.groupColor || activeGroup.color
+      };
+    }
+  }
+
+  if (activeGroupId && Array.isArray(lastCalc.items)) {
+    const activeItm = lastCalc.items.find(it => it.id === activeGroupId);
+    if (activeItm && activeItm.materials && Array.isArray(activeItm.materials.processedRows) && activeItm.materials.processedRows.length > 0) {
+      const first = activeItm.materials.processedRows[0];
+      const rowUniqueKey = first.uniqueKey || `${activeItm.id}__${first.key || first.id}`;
+      return {
+        ...first,
+        uniqueKey: rowUniqueKey,
+        groupId: first.groupId || activeItm.id,
+        groupName: first.groupName || activeItm.name,
+        groupCategory: first.groupCategory || activeItm.category,
+        groupStyleName: first.groupStyleName || activeItm.styleName,
+        groupColor: first.groupColor || activeItm.color
+      };
+    }
+  }
+
   if (Array.isArray(lastCalc.categoryGroups)) {
     for (const group of lastCalc.categoryGroups) {
       if (group && group.materials && Array.isArray(group.materials.processedRows) && group.materials.processedRows.length > 0) {
@@ -3343,32 +4233,8 @@ function handleNewEstimate() {
       id: null,
       name: '',
       reference: 'EST-' + Math.floor(1000 + Math.random() * 9000),
-      categoryGroups: [
-        {
-          id: 'categoryGroup_1',
-          name: 'Category Group 1',
-          category: '', // Empty category
-          styleName: '',
-          color: '',
-          remarks: '',
-          lossPercent: 3.0,
-          classLossOverrides: {},
-          variants: [
-            {
-              id: 'var_1',
-              name: 'Variant 1',
-              zipperSize: '#5',
-              zipperType: 'closed_end',
-              length: '',
-              lengthUnit: 'inch',
-              quantity: '',
-              color: '',
-              remarks: '',
-              bomRows: []
-            }
-          ]
-        }
-      ],
+      items: [],
+      categoryGroups: [],
       labor: {
         method: 'per_zipper',
         ratePerZipper: '',
@@ -3384,7 +4250,9 @@ function handleNewEstimate() {
       priceOverrides: {}
     };
 
-    appState.selectedCalcDetailsGroupId = 'categoryGroup_1';
+    appState.activeItemId = null;
+    appState.selectedCalcDetailsGroupId = null;
+    appState.selectedMaterialKey = null;
     populateCommonForm();
     rebuildAndRenderAll();
     showToast('Started fresh blank estimate.', 'info');

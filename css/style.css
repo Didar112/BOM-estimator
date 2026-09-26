@@ -302,9 +302,11 @@ body {
   top: 86px;
   display: flex;
   flex-direction: column;
+  gap: 18px;
   max-height: calc(100vh - 106px);
   min-width: 0;
-  padding-right: 2px;
+  padding-right: 4px;
+  overflow-y: auto;
 }
 
 
@@ -2675,3 +2677,140 @@ body {
   padding: 0.5px 3px;
   border-radius: 3px;
 }
+
+/* ==========================================================================
+   INDEPENDENT ITEMS & SELECT ITEM CONFIGURATION PANEL STYLES
+   ========================================================================== */
+
+/* Items Toolbar */
+.items-toolbar {
+  background: var(--slate-50);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--slate-200);
+}
+
+/* Independent Item Cards */
+.item-card {
+  cursor: pointer;
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.item-card:hover {
+  border-color: var(--primary-300);
+  box-shadow: var(--shadow-sm);
+}
+
+.item-card.is-active-item {
+  border-color: var(--primary-600);
+  background: linear-gradient(to bottom, #ffffff, #f7f9ff);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12), var(--shadow-sm);
+}
+
+.item-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+.item-index-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--primary-50);
+  color: var(--primary-700);
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--primary-200);
+}
+
+.item-title-text {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--slate-800);
+}
+
+.item-active-pill {
+  background: var(--primary-600);
+  color: var(--white);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.item-active-pill::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a5b4fc;
+}
+
+.btn-remove-item {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--slate-400);
+  transition: all var(--transition-fast);
+}
+
+.btn-remove-item:hover {
+  color: var(--rose-600);
+  background: var(--rose-50);
+}
+
+/* Select Item Configuration Panel (Top-Right) */
+.card-select-item {
+  border-top: 3px solid var(--primary-600);
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  border-left: 1px solid var(--slate-200);
+  border-right: 1px solid var(--slate-200);
+  border-bottom: 1px solid var(--slate-200);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.select-item-header {
+  padding: 12px 18px;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+}
+
+.select-item-body {
+  padding: 16px;
+}
+
+.select-item-variant-select {
+  font-weight: 600;
+  border: 1.5px solid var(--primary-300);
+  background-color: var(--primary-50);
+  color: var(--primary-900);
+}
+
+.select-item-variant-select:focus {
+  border-color: var(--primary-600);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
