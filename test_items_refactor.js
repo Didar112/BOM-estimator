@@ -93,8 +93,14 @@ const indexHtmlSource = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf
 // Load app.js in global context
 eval(appJsSource);
 
+// 0. System starts without any item from the beginning
+console.log('--- Step 0: Startup State (No default item) ---');
+assert(Array.isArray(appState.currentEstimate.items), 'Initial appState.currentEstimate.items is an array');
+assert(appState.currentEstimate.items.length === 0, 'Program starts without any items (no default CZ#5)');
+assert(appState.activeItemId === null, 'Initial activeItemId is null');
+
 // 1. Open a new estimate
-console.log('--- Step 1: Open a new estimate ---');
+console.log('\n--- Step 1: Open a new estimate ---');
 handleNewEstimate();
 assert(Array.isArray(appState.currentEstimate.items), 'appState.currentEstimate.items is an initialized array');
 assert(appState.currentEstimate.items.length === 0, 'New estimate starts with 0 items');
@@ -238,6 +244,15 @@ assert(!itemsListHtml.includes('Variant 2'), 'Items list does not contain "Varia
 assert(itemsListHtml.includes('CZ#5'), 'Items list contains "CZ#5"');
 assert(itemsListHtml.includes('CZ#3'), 'Items list contains "CZ#3"');
 assert(itemsListHtml.includes('MZ#3'), 'Items list contains "MZ#3"');
+
+// 25b. Verify changing variant does NOT trigger a bottom-right toast message
+console.log('\n--- Verify changing item variant does NOT display a toast notification ---');
+let toastCalled = false;
+const origShowToast = global.showToast;
+global.showToast = () => { toastCalled = true; };
+handleChangeActiveItemVariant('cz_3');
+assert(!toastCalled, 'handleChangeActiveItemVariant does NOT trigger a bottom-right toast');
+global.showToast = origShowToast;
 
 // 26. Verify the visible configuration heading is "Select Item"
 console.log('\n--- Step 26: Verify visible configuration heading ---');

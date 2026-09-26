@@ -253,78 +253,8 @@ let appState = {
     id: null,
     name: '',
     reference: 'EST-' + Math.floor(1000 + Math.random() * 9000),
-    items: [
-      {
-        id: 'item_1',
-        variantKey: 'cz_5',
-        displayName: 'CZ#5',
-        name: 'CZ#5',
-        category: 'cz',
-        zipperSize: '#5',
-        zipperType: 'closed_end',
-        length: 7.5,
-        lengthUnit: 'inch',
-        quantity: 1500,
-        color: '',
-        styleName: '',
-        remarks: '',
-        lossPercent: 3.0,
-        classLossOverrides: {},
-        sliderAdditionPercent: 8.0,
-        sliderAddPercent: 8.0,
-        isSliderOverridden: false,
-        pinBoxLossPercent: 4.0,
-        isPinBoxLossOverridden: false,
-        pinBoxPerZipper: 1,
-        hBottomLossPercent: undefined,
-        isHBottomLossOverridden: false,
-        isSpecialUTopOrder: false,
-        czParams: {},
-        mzParams: {},
-        wireParams: {},
-        pzParams: {},
-        bomRows: []
-      }
-    ],
-    categoryGroups: [
-      {
-        id: 'categoryGroup_1',
-        name: 'CZ#5',
-        category: 'cz',
-        styleName: '',
-        color: '',
-        remarks: '',
-        lossPercent: 3.0,
-        classLossOverrides: {},
-        sliderAdditionPercent: 8.0,
-        sliderAddPercent: 8.0,
-        isSliderOverridden: false,
-        pinBoxLossPercent: 4.0,
-        isPinBoxLossOverridden: false,
-        pinBoxPerZipper: 1,
-        hBottomLossPercent: undefined,
-        isHBottomLossOverridden: false,
-        isSpecialUTopOrder: false,
-        czParams: {},
-        mzParams: {},
-        wireParams: {},
-        pzParams: {},
-        variants: [
-          {
-            id: 'var_1',
-            name: 'CZ#5',
-            zipperSize: '#5',
-            zipperType: 'closed_end',
-            length: 7.5,
-            lengthUnit: 'inch',
-            quantity: 1500,
-            color: '',
-            remarks: '',
-            bomRows: []
-          }
-        ]
-      }
-    ],
+    items: [],
+    categoryGroups: [],
     labor: {
       method: 'per_zipper',
       ratePerZipper: '',
@@ -339,9 +269,9 @@ let appState = {
     otherCosts: [],
     priceOverrides: {}
   },
-  activeItemId: 'item_1',
+  activeItemId: null,
   selectedMaterialKey: null,
-  selectedCalcDetailsGroupId: 'categoryGroup_1',
+  selectedCalcDetailsGroupId: null,
   lastCalculation: null,
   isFormulaDetailsCollapsed: false
 };
@@ -822,7 +752,6 @@ function handleChangeActiveItemVariant(newVariantKey) {
   }
 
   rebuildAndRenderAll();
-  showToast(`Switched active item to ${vDef.displayName}`, 'info');
 }
 
 /**
@@ -2797,7 +2726,6 @@ function bindCategoryGroupEventListeners() {
       });
 
       rebuildAndRenderAll();
-      showToast(`Group "${group.name}" switched to ${getCategoryDisplayName(newCat)}.`, 'info');
     });
   });
 
