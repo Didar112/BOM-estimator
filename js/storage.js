@@ -5,6 +5,34 @@
  */
 
 const STORAGE_KEY = 'zipper_bom_estimates_v2';
+const ONGOING_DRAFT_KEY = 'zipper_bom_ongoing_draft_v2';
+const CUSTOM_PRESETS_STORAGE_KEY = 'zipper_bom_custom_parameter_presets_v1';
+const API_BASE_URL_DEFAULT = './api';
+let currentApiBaseUrl = (typeof window !== 'undefined' && window.API_BASE_URL) ? window.API_BASE_URL : API_BASE_URL_DEFAULT;
+
+/**
+ * Get the current API base URL
+ * @returns {string}
+ */
+function getApiBaseUrl() {
+  return currentApiBaseUrl;
+}
+
+/**
+ * Set the API base URL (useful for Docker or external endpoints)
+ * @param {string} url
+ */
+function setApiBaseUrl(url) {
+  currentApiBaseUrl = url;
+}
+
+/**
+ * Check if running in a real browser environment with fetch capability
+ * @returns {boolean}
+ */
+function isBrowserFetch() {
+  return typeof window !== 'undefined' && typeof fetch !== 'undefined' && typeof window.document !== 'undefined';
+}
 
 /**
  * Determine dynamic Slider Add % default from updated factory chart based on zipper pcs
@@ -231,7 +259,7 @@ function normalizeEstimate(est) {
       sliderAddPercent: legacySliderAddVal,
       isSliderOverridden: legacySliderOverridden,
       pinBoxPerZipper: normalized.pinBoxPerZipper !== undefined ? Number(normalized.pinBoxPerZipper) : 1,
-      isSpecialUTopOrder: Boolean(normalized.isSpecialUTopOrder || (normalized.czParams && normalized.czParams.isSpecialUTopOrder)),
+      isSpecialUTopOrder: Boolean(normalized.isSpecialUTopOrder || (normalized.czParams && normalized.czParams.isSpecialUTopOrder) || (normalized.mzParams && normalized.mzParams.isSpecialUTopOrder) || (normalized.pzParams && normalized.pzParams.isSpecialUTopOrder)),
       variants: legacyVariants
     }];
   } else {
@@ -275,7 +303,7 @@ function normalizeEstimate(est) {
         pinBoxPerZipper: 1,
         hBottomLossPercent: g.hBottomLossPercent !== undefined ? Number(g.hBottomLossPercent) : undefined,
         isHBottomLossOverridden: Boolean(g.isHBottomLossOverridden),
-        isSpecialUTopOrder: Boolean(g.isSpecialUTopOrder || (g.czParams && g.czParams.isSpecialUTopOrder)),
+        isSpecialUTopOrder: Boolean(g.isSpecialUTopOrder || (g.czParams && g.czParams.isSpecialUTopOrder) || (g.mzParams && g.mzParams.isSpecialUTopOrder) || (g.pzParams && g.pzParams.isSpecialUTopOrder)),
         czParams: (g.czParams && typeof g.czParams === 'object') ? g.czParams : {},
         mzParams: (g.mzParams && typeof g.mzParams === 'object') ? g.mzParams : {},
         wireParams: (g.wireParams && typeof g.wireParams === 'object') ? g.wireParams : {},
@@ -305,6 +333,7 @@ function normalizeEstimate(est) {
         color: item.color || '',
         styleName: item.styleName || '',
         remarks: item.remarks || '',
+        allowance: item.allowance !== undefined && item.allowance !== null ? Number(item.allowance) : 0,
         lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (cat === 'wire' ? 4.0 : 3.0),
         classLossOverrides: item.classLossOverrides || {},
         sliderAdditionPercent: item.sliderAdditionPercent !== undefined ? Number(item.sliderAdditionPercent) : 8.0,
@@ -315,12 +344,13 @@ function normalizeEstimate(est) {
         pinBoxPerZipper: 1,
         hBottomLossPercent: item.hBottomLossPercent !== undefined ? Number(item.hBottomLossPercent) : undefined,
         isHBottomLossOverridden: Boolean(item.isHBottomLossOverridden),
-        isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
+        isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder) || (item.mzParams && item.mzParams.isSpecialUTopOrder) || (item.pzParams && item.pzParams.isSpecialUTopOrder)),
         czParams: item.czParams || {},
         mzParams: item.mzParams || {},
         wireParams: item.wireParams || {},
         pzParams: item.pzParams || {},
-        bomRows: Array.isArray(item.bomRows) ? item.bomRows : []
+        bomRows: Array.isArray(item.bomRows) ? item.bomRows : [],
+        variants: Array.isArray(item.variants) && item.variants.length > 0 ? item.variants : undefined
       };
     });
   } else if (Array.isArray(normalized.categoryGroups) && normalized.categoryGroups.length > 0) {
@@ -424,9 +454,17 @@ function saveAllEstimates(estimates) {
 }
 
 /**
- * Save or update a single estimate snapshot
- * @param {Object} estimate - Full snapshot object
- * @returns {Object} Saved estimate with ID
+ * Generate a collision-proof unique ID for a calculation
+ * @returns {string} Unique ID, e.g. calc_1774691234567_a8b9c2
+ */
+function generateUniqueCalculationId() {
+  return 'calc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+}
+
+/**
+ * Save or update a single calculation snapshot
+ * @param {Object} estimate - Full calculation page snapshot object
+ * @returns {Object} Saved calculation with unique ID
  */
 function saveEstimate(estimate) {
   const estimates = getAllSavedEstimates();
@@ -435,26 +473,31 @@ function saveEstimate(estimate) {
   let target = normalizeEstimate(JSON.parse(JSON.stringify(estimate)));
 
   if (!target.id) {
-    target.id = 'est_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    target.id = generateUniqueCalculationId();
     target.createdAt = now;
   }
   target.updatedAt = now;
+  target.savedAt = target.savedAt || now;
 
   // Re-calculate full snapshot to guarantee historical accuracy
-  if (window.CalculatorEngine) {
-    const fullCalculation = window.CalculatorEngine.calculateFullEstimate(target);
-    target.calculationSnapshot = {
-      totalOrderQuantity: fullCalculation.totals.quantity,
-      variantCount: fullCalculation.totals.variantCount,
-      totalBaseMaterialCost: fullCalculation.totals.totalBaseMaterialCost,
-      totalWastageCost: fullCalculation.totals.totalWastageCost,
-      totalMaterialCost: fullCalculation.totals.totalMaterialCost,
-      totalLaborCost: fullCalculation.totals.totalLaborCost,
-      totalOverheadCost: fullCalculation.totals.totalOverheadCost,
-      totalOtherCosts: fullCalculation.totals.totalOtherCosts,
-      totalEstimatedCost: fullCalculation.totals.totalEstimatedCost,
-      costPerZipper: fullCalculation.totals.costPerZipper
-    };
+  if (window.CalculatorEngine && typeof window.CalculatorEngine.calculateFullEstimate === 'function') {
+    try {
+      const fullCalculation = window.CalculatorEngine.calculateFullEstimate(target);
+      target.calculationSnapshot = {
+        totalOrderQuantity: fullCalculation.totals.quantity,
+        variantCount: fullCalculation.totals.variantCount,
+        totalBaseMaterialCost: fullCalculation.totals.totalBaseMaterialCost,
+        totalWastageCost: fullCalculation.totals.totalWastageCost,
+        totalMaterialCost: fullCalculation.totals.totalMaterialCost,
+        totalLaborCost: fullCalculation.totals.totalLaborCost,
+        totalOverheadCost: fullCalculation.totals.totalOverheadCost,
+        totalOtherCosts: fullCalculation.totals.totalOtherCosts,
+        totalEstimatedCost: fullCalculation.totals.totalEstimatedCost,
+        costPerZipper: fullCalculation.totals.costPerZipper
+      };
+    } catch (e) {
+      console.warn('Calculation snapshot generation warning:', e);
+    }
   }
 
   const existingIdx = estimates.findIndex(e => e.id === target.id);
@@ -465,11 +508,61 @@ function saveEstimate(estimate) {
   }
 
   saveAllEstimates(estimates);
+
+  // Background persist to MySQL backend when running in a browser environment
+  if (isBrowserFetch()) {
+    fetch(`${currentApiBaseUrl}/estimates.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(target)
+    }).catch(err => {
+      // Graceful local fallback if backend is temporarily unreachable
+      console.warn('[StorageManager] Background MySQL estimate save deferred to local cache:', err.message);
+    });
+  }
+
   return target;
 }
 
 /**
- * Retrieve a single estimate by ID
+ * Save estimate asynchronously to MySQL backend and update local cache
+ * @param {Object} estimate
+ * @returns {Promise<Object>}
+ */
+async function saveEstimateAsync(estimate) {
+  const target = normalizeEstimate(JSON.parse(JSON.stringify(estimate)));
+  const now = new Date().toISOString();
+  if (!target.id) {
+    target.id = generateUniqueCalculationId();
+    target.createdAt = now;
+  }
+  target.updatedAt = now;
+  target.savedAt = target.savedAt || now;
+
+  // Update local storage immediately
+  saveEstimate(target);
+
+  if (isBrowserFetch()) {
+    try {
+      const res = await fetch(`${currentApiBaseUrl}/estimates.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data) return json.data;
+      }
+    } catch (err) {
+      console.warn('[StorageManager] saveEstimateAsync network warning:', err.message);
+    }
+  }
+
+  return target;
+}
+
+/**
+ * Retrieve a single calculation by ID
  * @param {string} id 
  * @returns {Object|null}
  */
@@ -479,7 +572,7 @@ function getEstimateById(id) {
 }
 
 /**
- * Duplicate an existing saved estimate
+ * Duplicate an existing saved calculation
  * @param {string} id 
  * @returns {Object|null}
  */
@@ -488,27 +581,59 @@ function duplicateEstimate(id) {
   if (!original) return null;
 
   const copy = JSON.parse(JSON.stringify(original));
-  copy.id = 'est_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-  copy.name = `${copy.name || 'Estimate'} (Copy)`;
+  copy.id = generateUniqueCalculationId();
+  copy.name = `${copy.name || 'Calculation'} (Copy)`;
   copy.createdAt = new Date().toISOString();
   copy.updatedAt = copy.createdAt;
+  copy.savedAt = copy.createdAt;
 
   return saveEstimate(copy);
 }
 
 /**
- * Delete a saved estimate by ID
+ * Delete a saved calculation by ID
  * @param {string} id 
  * @returns {boolean}
  */
 function deleteEstimate(id) {
   const estimates = getAllSavedEstimates();
   const filtered = estimates.filter(e => e.id !== id);
-  return saveAllEstimates(filtered);
+  const result = saveAllEstimates(filtered);
+
+  // Background delete from MySQL backend when running in a browser environment
+  if (isBrowserFetch()) {
+    fetch(`${currentApiBaseUrl}/estimates.php?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    }).catch(err => {
+      console.warn('[StorageManager] Background MySQL estimate delete deferred:', err.message);
+    });
+  }
+
+  return result;
 }
 
 /**
- * Export all saved estimates as a downloadable JSON backup file
+ * Delete an estimate asynchronously from MySQL backend and local cache
+ * @param {string} id
+ * @returns {Promise<boolean>}
+ */
+async function deleteEstimateAsync(id) {
+  deleteEstimate(id);
+  if (isBrowserFetch()) {
+    try {
+      const res = await fetch(`${currentApiBaseUrl}/estimates.php?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[StorageManager] deleteEstimateAsync network warning:', err.message);
+    }
+  }
+  return true;
+}
+
+/**
+ * Export all saved calculations as a downloadable JSON backup file
  */
 function exportEstimatesToJSON() {
   const data = getAllSavedEstimates();
@@ -525,16 +650,47 @@ function exportEstimatesToJSON() {
 }
 
 /**
- * Import estimates from a JSON string or file content
- * @param {string} jsonString 
- * @param {boolean} [merge=true] - If true, merges with existing; if false, replaces
- * @returns {number} Count of imported items
+ * Import calculations from a JSON string or File object
+ * @param {string|File} input - JSON string or File object from input[type=file]
+ * @param {boolean|Function} [mergeOrCallback=true] - Merge flag, or callback function
+ * @param {Function} [callback] - Callback function (err, count)
+ * @returns {number|void} Count of imported items
  */
-function importEstimatesFromJSON(jsonString, merge = true) {
+function importEstimatesFromJSON(input, mergeOrCallback = true, callback) {
+  let merge = true;
+  let cb = null;
+
+  if (typeof mergeOrCallback === 'function') {
+    cb = mergeOrCallback;
+    merge = true;
+  } else {
+    merge = mergeOrCallback !== false;
+    cb = typeof callback === 'function' ? callback : null;
+  }
+
+  // Handle File object (as passed from file input in app.js)
+  if (typeof File !== 'undefined' && input instanceof File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const count = importEstimatesFromJSON(e.target.result, merge);
+        if (cb) cb(null, count);
+      } catch (err) {
+        if (cb) cb(err);
+      }
+    };
+    reader.onerror = () => {
+      if (cb) cb(new Error('Failed to read backup file'));
+    };
+    reader.readAsText(input);
+    return;
+  }
+
+  // Handle raw JSON string
   try {
-    const imported = JSON.parse(jsonString);
+    const imported = JSON.parse(input);
     if (!Array.isArray(imported)) {
-      throw new Error('Invalid backup file format. Expected an array of estimates.');
+      throw new Error('Invalid backup file format. Expected an array of calculations.');
     }
 
     let current = merge ? getAllSavedEstimates() : [];
@@ -543,17 +699,380 @@ function importEstimatesFromJSON(jsonString, merge = true) {
       const norm = normalizeEstimate(item);
       if (norm) {
         if (!norm.id || current.some(c => c.id === norm.id)) {
-          norm.id = 'est_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+          norm.id = generateUniqueCalculationId();
         }
         current.unshift(norm);
       }
     });
 
     saveAllEstimates(current);
+    if (cb) cb(null, imported.length);
     return imported.length;
   } catch (err) {
     console.error('Import failed:', err);
+    if (cb) {
+      cb(err);
+      return;
+    }
     throw err;
+  }
+}
+
+/**
+ * Save ongoing calculation draft to localStorage
+ * @param {Object} estimate - Full ongoing calculation page snapshot object
+ * @returns {Object|null}
+ */
+function saveOngoingDraft(estimate) {
+  if (!estimate || typeof estimate !== 'object') return null;
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const clone = JSON.parse(JSON.stringify(estimate));
+    const normalized = normalizeEstimate(clone);
+    if (!normalized) return null;
+
+    if (estimate.activeItemId) normalized.activeItemId = estimate.activeItemId;
+    if (estimate.bomViewMode) normalized.bomViewMode = estimate.bomViewMode;
+    normalized.draftSavedAt = new Date().toISOString();
+    normalized.isOngoingDraft = true;
+
+    localStorage.setItem(ONGOING_DRAFT_KEY, JSON.stringify(normalized));
+    return normalized;
+  } catch (err) {
+    console.error('Error saving ongoing draft to localStorage:', err);
+    return null;
+  }
+}
+
+/**
+ * Retrieve ongoing calculation draft from localStorage
+ * @returns {Object|null}
+ */
+function getOngoingDraft() {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(ONGOING_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeEstimate(parsed);
+    if (!normalized) return null;
+
+    if (parsed.activeItemId) normalized.activeItemId = parsed.activeItemId;
+    if (parsed.bomViewMode) normalized.bomViewMode = parsed.bomViewMode;
+    if (parsed.draftSavedAt) normalized.draftSavedAt = parsed.draftSavedAt;
+    normalized.isOngoingDraft = true;
+
+    return normalized;
+  } catch (err) {
+    console.error('Error reading ongoing draft from localStorage:', err);
+    return null;
+  }
+}
+
+/**
+ * Check if a non-empty ongoing calculation draft exists in localStorage
+ * @returns {boolean}
+ */
+function hasOngoingDraft() {
+  const draft = getOngoingDraft();
+  if (!draft) return false;
+  const hasItems = Array.isArray(draft.items) && draft.items.length > 0;
+  const hasGroups = Array.isArray(draft.categoryGroups) && draft.categoryGroups.length > 0;
+  return hasItems || hasGroups;
+}
+
+/**
+ * Clear the ongoing calculation draft from localStorage
+ * @returns {boolean}
+ */
+function clearOngoingDraft() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    localStorage.removeItem(ONGOING_DRAFT_KEY);
+    return true;
+  } catch (err) {
+    console.error('Error clearing ongoing draft from localStorage:', err);
+    return false;
+  }
+}
+
+// ==================== CUSTOM PARAMETER PRESETS STORAGE ====================
+
+/**
+ * Retrieve all custom parameter presets from localStorage
+ * @returns {Array<Object>}
+ */
+function getAllCustomPresets() {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Error reading custom presets from localStorage:', err);
+    return [];
+  }
+}
+
+/**
+ * Save full list of custom presets to localStorage
+ * @param {Array<Object>} presets
+ * @returns {boolean}
+ */
+function saveAllCustomPresets(presets) {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    localStorage.setItem(CUSTOM_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    return true;
+  } catch (err) {
+    console.error('Error writing custom presets to localStorage:', err);
+    return false;
+  }
+}
+
+/**
+ * Normalize variant key for consistent scoping
+ * e.g. 'mz_3', 'cz_5', 'wire_5_long', 'pz_8'
+ */
+function normalizePresetVariantKey(variantKey) {
+  const v = String(variantKey || 'cz_5').toLowerCase().trim();
+  if (v === 'mz3' || v === 'mz#3') return 'mz_3';
+  if (v === 'mz5' || v === 'mz#5') return 'mz_5';
+  if (v === 'cz3' || v === 'cz#3') return 'cz_3';
+  if (v === 'cz5' || v === 'cz#5') return 'cz_5';
+  if (v === 'pz3' || v === 'pz#3') return 'pz_3';
+  if (v === 'pz5' || v === 'pz#5') return 'pz_5';
+  if (v === 'pz8' || v === 'pz#8') return 'pz_8';
+  return v;
+}
+
+/**
+ * Normalize unit for consistent scoping
+ * e.g. 'inch' or 'cm'
+ */
+function normalizePresetUnit(unit) {
+  const u = String(unit || 'inch').toLowerCase().trim();
+  return (u === 'cm' || u === 'centimeter' || u === 'centimeters' || u === 'mm') ? 'cm' : 'inch';
+}
+
+/**
+ * Format category and size display tag for preset name, e.g. "mz#3" or "cz#5"
+ */
+function formatCategorySizeTag(variantKey) {
+  const v = normalizePresetVariantKey(variantKey);
+  if (v.startsWith('wire')) {
+    if (v.includes('3')) return 'wire#3';
+    if (v.includes('long')) return 'wire#5 long';
+    return 'wire#5';
+  }
+  const parts = v.split('_');
+  if (parts.length >= 2) {
+    return `${parts[0]}#${parts[1]}`;
+  }
+  return v;
+}
+
+/**
+ * Get custom presets matching a specific variantKey and lengthUnit
+ * @param {string} variantKey e.g. 'mz_3'
+ * @param {string} lengthUnit e.g. 'inch' or 'cm'
+ * @returns {Array<Object>}
+ */
+function getCustomPresets(variantKey, lengthUnit = 'inch') {
+  const targetKey = normalizePresetVariantKey(variantKey);
+  const targetUnit = normalizePresetUnit(lengthUnit);
+  const all = getAllCustomPresets();
+
+  return all.filter(p => {
+    const pKey = normalizePresetVariantKey(p.variantKey);
+    const pUnit = normalizePresetUnit(p.unit || p.lengthUnit);
+    return pKey === targetKey && pUnit === targetUnit;
+  });
+}
+
+/**
+ * Save a custom parameter preset
+ * @param {Object} options
+ * @param {string} options.name - User-provided name, e.g. "custom-1"
+ * @param {string} options.variantKey - e.g. "mz_3"
+ * @param {string} options.lengthUnit - e.g. "inch"
+ * @param {Object} options.parameters - Object containing altered static parameters
+ * @param {string} [options.id] - Optional ID if updating existing
+ * @returns {Object} Saved preset object
+ */
+function saveCustomPreset(options = {}) {
+  const name = String(options.name || 'custom-1').trim();
+  const variantKey = normalizePresetVariantKey(options.variantKey || 'mz_3');
+  const unit = normalizePresetUnit(options.lengthUnit || options.unit || 'inch');
+  const catTag = formatCategorySizeTag(variantKey);
+  const displayName = `${name} (${catTag}, ${unit})`;
+  const id = options.id || ('preset_' + variantKey + '_' + unit + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4));
+
+  const newPreset = {
+    id,
+    name,
+    displayName,
+    variantKey,
+    unit,
+    lengthUnit: unit,
+    parameters: Object.assign({}, options.parameters || {}),
+    createdAt: options.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const all = getAllCustomPresets();
+  const existingIdx = all.findIndex(p => p.id === id);
+  if (existingIdx >= 0) {
+    all[existingIdx] = newPreset;
+  } else {
+    all.push(newPreset);
+  }
+
+  saveAllCustomPresets(all);
+
+  // Background persist to MySQL backend when running in a browser environment
+  if (isBrowserFetch()) {
+    fetch(`${currentApiBaseUrl}/custom_presets.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newPreset)
+    }).catch(err => {
+      console.warn('[StorageManager] Background MySQL preset save deferred to local cache:', err.message);
+    });
+  }
+
+  return newPreset;
+}
+
+/**
+ * Save custom preset asynchronously to MySQL backend and update local cache
+ * @param {Object} options
+ * @returns {Promise<Object>}
+ */
+async function saveCustomPresetAsync(options = {}) {
+  const saved = saveCustomPreset(options);
+  if (isBrowserFetch()) {
+    try {
+      const res = await fetch(`${currentApiBaseUrl}/custom_presets.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saved)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data) return json.data;
+      }
+    } catch (err) {
+      console.warn('[StorageManager] saveCustomPresetAsync network warning:', err.message);
+    }
+  }
+  return saved;
+}
+
+/**
+ * Delete a custom preset by ID
+ * @param {string} presetId
+ * @returns {boolean}
+ */
+function deleteCustomPreset(presetId) {
+  const all = getAllCustomPresets();
+  const filtered = all.filter(p => p.id !== presetId);
+  if (filtered.length !== all.length) {
+    saveAllCustomPresets(filtered);
+
+    // Background delete from MySQL backend when running in a browser environment
+    if (isBrowserFetch()) {
+      fetch(`${currentApiBaseUrl}/custom_presets.php?id=${encodeURIComponent(presetId)}`, {
+        method: 'DELETE'
+      }).catch(err => {
+        console.warn('[StorageManager] Background MySQL preset delete deferred:', err.message);
+      });
+    }
+
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Delete a custom preset asynchronously from MySQL backend and local cache
+ * @param {string} presetId
+ * @returns {Promise<boolean>}
+ */
+async function deleteCustomPresetAsync(presetId) {
+  deleteCustomPreset(presetId);
+  if (isBrowserFetch()) {
+    try {
+      const res = await fetch(`${currentApiBaseUrl}/custom_presets.php?id=${encodeURIComponent(presetId)}`, {
+        method: 'DELETE'
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[StorageManager] deleteCustomPresetAsync network warning:', err.message);
+    }
+  }
+  return true;
+}
+
+/**
+ * Check MySQL backend database health
+ * @returns {Promise<Object>}
+ */
+async function checkBackendHealth() {
+  if (!isBrowserFetch()) {
+    return { status: 'offline', database: 'unavailable', error: 'Fetch API not available in this environment' };
+  }
+  try {
+    const res = await fetch(`${currentApiBaseUrl}/health.php`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || json;
+  } catch (err) {
+    return { status: 'unhealthy', database: 'disconnected', error: err.message };
+  }
+}
+
+/**
+ * Synchronize local storage cache with MySQL backend.
+ * Reads estimates and custom presets from MySQL and updates local cache seamlessly.
+ * @returns {Promise<boolean>}
+ */
+async function syncWithBackend() {
+  if (!isBrowserFetch()) return false;
+
+  try {
+    const [estRes, presetsRes] = await Promise.all([
+      fetch(`${currentApiBaseUrl}/estimates.php`).catch(() => null),
+      fetch(`${currentApiBaseUrl}/custom_presets.php`).catch(() => null)
+    ]);
+
+    let updated = false;
+
+    if (estRes && estRes.ok) {
+      const estJson = await estRes.json();
+      if (estJson && estJson.success && Array.isArray(estJson.data) && estJson.data.length > 0) {
+        saveAllEstimates(estJson.data.map(normalizeEstimate).filter(Boolean));
+        updated = true;
+      }
+    }
+
+    if (presetsRes && presetsRes.ok) {
+      const pJson = await presetsRes.json();
+      if (pJson && pJson.success && Array.isArray(pJson.data) && pJson.data.length > 0) {
+        saveAllCustomPresets(pJson.data);
+        updated = true;
+      }
+    }
+
+    if (updated && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('bom:storage-synced', { detail: { timestamp: new Date().toISOString() } }));
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[StorageManager] Background backend sync skipped:', err.message);
+    return false;
   }
 }
 
@@ -561,27 +1080,64 @@ function importEstimatesFromJSON(jsonString, merge = true) {
 if (typeof window !== 'undefined') {
   window.StorageManager = {
     getAllSavedEstimates,
+    getAllEstimates: getAllSavedEstimates,
     getEstimateById,
     saveEstimate,
+    saveEstimateAsync,
     duplicateEstimate,
     deleteEstimate,
+    deleteEstimateAsync,
     exportEstimatesToJSON,
     importEstimatesFromJSON,
-    normalizeEstimate
+    normalizeEstimate,
+    generateUniqueCalculationId,
+    saveOngoingDraft,
+    getOngoingDraft,
+    hasOngoingDraft,
+    clearOngoingDraft,
+    getAllCustomPresets,
+    getCustomPresets,
+    saveCustomPreset,
+    saveCustomPresetAsync,
+    deleteCustomPreset,
+    deleteCustomPresetAsync,
+    checkBackendHealth,
+    syncWithBackend,
+    getApiBaseUrl,
+    setApiBaseUrl
   };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     getAllSavedEstimates,
+    getAllEstimates: getAllSavedEstimates,
     getEstimateById,
     saveEstimate,
+    saveEstimateAsync,
     duplicateEstimate,
     deleteEstimate,
+    deleteEstimateAsync,
     exportEstimatesToJSON,
     importEstimatesFromJSON,
-    normalizeEstimate
+    normalizeEstimate,
+    generateUniqueCalculationId,
+    saveOngoingDraft,
+    getOngoingDraft,
+    hasOngoingDraft,
+    clearOngoingDraft,
+    getAllCustomPresets,
+    getCustomPresets,
+    saveCustomPreset,
+    saveCustomPresetAsync,
+    deleteCustomPreset,
+    deleteCustomPresetAsync,
+    checkBackendHealth,
+    syncWithBackend,
+    getApiBaseUrl,
+    setApiBaseUrl
   };
 }
+
 
 

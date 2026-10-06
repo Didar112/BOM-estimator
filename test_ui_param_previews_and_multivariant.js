@@ -101,7 +101,7 @@ const czGroup = {
 
 const czHtml = buildCategoryGroupHTML(czGroup, 0, 1);
 assert('Slider Add % has preview container preview-slider-g_cz_all', czHtml.includes('id="preview-slider-g_cz_all"'));
-assert('Pin Box Loss % has preview container preview-pin-box-g_cz_all', czHtml.includes('id="preview-pin-box-g_cz_all"'));
+assert('Pin Box Loss % is NOT in CZ category card', !czHtml.includes('id="preview-pin-box-g_cz_all"'));
 assert('Chain Allowance has preview-cz-allowance-g_cz_all', czHtml.includes('id="preview-cz-allowance-g_cz_all"'));
 assert('Tape Divisor has preview-cz-tape-g_cz_all', czHtml.includes('id="preview-cz-tape-g_cz_all"'));
 assert('Top Stop has preview-cz-top-g_cz_all', czHtml.includes('id="preview-cz-top-g_cz_all"'));
@@ -110,6 +110,19 @@ assert('Resin Divisor has preview-cz-resin-g_cz_all', czHtml.includes('id="previ
 assert('Tollilon 1 Divisor has preview-cz-tollilon1-g_cz_all', czHtml.includes('id="preview-cz-tollilon1-g_cz_all"'));
 assert('Tollilon 2 Divisor has preview-cz-tollilon2-g_cz_all', czHtml.includes('id="preview-cz-tollilon2-g_cz_all"'));
 assert('U-Top has preview-cz-utop-g_cz_all', czHtml.includes('id="preview-cz-utop-g_cz_all"'));
+
+// MZ Open-End Group HTML
+const mzOpenGroup = {
+  id: 'g_mz_open',
+  name: 'MZ Open Test Group',
+  category: 'mz',
+  lossPercent: 3.0,
+  variants: [
+    { id: 'v1', zipperSize: '#5', lengthUnit: 'inch', quantity: 1000, length: 10, endType: 'open_end' }
+  ]
+};
+const mzOpenHtml = buildCategoryGroupHTML(mzOpenGroup, 0, 1);
+assert('MZ Open End Pin Box Loss % has preview container preview-pin-box-g_mz_open', mzOpenHtml.includes('id="preview-pin-box-g_mz_open"'));
 
 // MZ Group HTML
 const mzGroup = {
@@ -153,7 +166,7 @@ const tollilon2Pos = czHtml.indexOf('cz-tollilon2-div-g_cz_all');
 const uTopPos = czHtml.indexOf('cz-utop-special-g_cz_all');
 assert('Tollilon Divisor 2 appears before Special U-Top checkbox (Row 2 order)', tollilon2Pos !== -1 && uTopPos !== -1 && tollilon2Pos < uTopPos);
 
-// CZ#3 Group does not render U-Top
+// CZ#3 Group DOES render U-Top (Universal across all zipper categories)
 const cz3OnlyGroup = {
   id: 'g_cz3_only',
   name: 'CZ#3 Group',
@@ -164,7 +177,19 @@ const cz3OnlyGroup = {
   ]
 };
 const cz3OnlyHtml = buildCategoryGroupHTML(cz3OnlyGroup, 0, 1);
-assert('CZ#3-only group does NOT render U-Top checkbox card', !cz3OnlyHtml.includes('cz-utop-special') && !cz3OnlyHtml.includes('category-dynamic-param-utop-card'));
+assert('CZ#3-only group DOES render U-Top checkbox card', cz3OnlyHtml.includes('cz-utop-special') && cz3OnlyHtml.includes('category-dynamic-param-utop-card'));
+
+// Non-zipper (WIRE) does NOT render U-Top
+const wireOnlyGroup = {
+  id: 'g_wire_only',
+  name: 'WIRE Group',
+  category: 'wire',
+  variants: [
+    { id: 'v1', zipperSize: '#5', quantity: 1000, length: 10 }
+  ]
+};
+const wireOnlyHtml = buildCategoryGroupHTML(wireOnlyGroup, 0, 1);
+assert('WIRE group does NOT render U-Top checkbox card', !wireOnlyHtml.includes('utop-special') && !wireOnlyHtml.includes('category-dynamic-param-utop-card'));
 
 // ----------------------------------------------------
 // SECTION 3: Multi-Variant Component Activation
@@ -225,11 +250,11 @@ assert('WIRE Multi Group title shows "WIRE#5 Normal & Long Teeth"', wireMultiHtm
 assert('WIRE Multi Group KEEPS Wire Allowance active because Long Teeth is present', wireMultiHtml.includes('wire-allowance-g_wire_multi'));
 assert('WIRE Multi Group KEEPS Wire Divisor active', wireMultiHtml.includes('wire-div-g_wire_multi'));
 
-// Case D: Zipper Group with BOTH Closed End and Open End variants
-// Open End needs Pin Box, Closed End does not. Pin Box Preview should show pcs for Open End
+// Case D: Zipper Group with Closed End and Open End variants
+// Pin Box Preview should be excluded for CZ, but active for MZ Open End
 const zipperMultiEndGroup = {
   id: 'g_mixed_ends',
-  name: 'Mixed Ends Group',
+  name: 'CZ Mixed Ends Group',
   category: 'cz',
   lossPercent: 3.0,
   variants: [
@@ -237,6 +262,18 @@ const zipperMultiEndGroup = {
     { id: 'v2', zipperSize: '#5', endType: 'open_end', lengthUnit: 'inch', quantity: 1500, length: 10 }
   ]
 };
+
+const mzMultiEndGroup = {
+  id: 'g_mz_mixed_ends',
+  name: 'MZ Mixed Ends Group',
+  category: 'mz',
+  lossPercent: 3.0,
+  variants: [
+    { id: 'v1', zipperSize: '#5', endType: 'closed_end', lengthUnit: 'inch', quantity: 500, length: 10 },
+    { id: 'v2', zipperSize: '#5', endType: 'open_end', lengthUnit: 'inch', quantity: 1500, length: 10 }
+  ]
+};
+
 // Attach mock calculation in appState
 appState.lastCalculation = {
   categoryGroups: [
@@ -244,7 +281,6 @@ appState.lastCalculation = {
       id: 'g_mixed_ends',
       calculation: {
         sliderQuantity: 2080,
-        pinBoxQuantity: 1560,
         baseChainConsumptionMtr: 600,
         totalTapeKg: 11.5,
         topStopKg: 0.08,
@@ -256,6 +292,16 @@ appState.lastCalculation = {
         uTopQty: 3000
       },
       materials: {
+        processedRows: []
+      }
+    },
+    {
+      id: 'g_mz_mixed_ends',
+      calculation: {
+        sliderQuantity: 2080,
+        pinBoxQuantity: 1560
+      },
+      materials: {
         processedRows: [
           { component: 'PIN BOX', totalQuantity: 1560 }
         ]
@@ -264,7 +310,9 @@ appState.lastCalculation = {
   ]
 };
 const mixedPreviews = getCategoryParamPreviewData(zipperMultiEndGroup);
-assert('Pin Box preview shows active quantity (1,560 Pcs) for mixed group with open end', mixedPreviews.pinBox === 'Pin Box: 1,560 Pcs');
+const mzMixedPreviews = getCategoryParamPreviewData(mzMultiEndGroup);
+assert('Pin Box preview is excluded (—) for CZ group even with open end', mixedPreviews.pinBox === '—');
+assert('Pin Box preview shows active quantity (1,560 Pcs) for MZ group with open end', mzMixedPreviews.pinBox === 'Pin Box: 1,560 Pcs');
 assert('Slider preview shows active quantity (2,080 Pcs)', mixedPreviews.slider === 'Slider: 2,080 Pcs');
 assert('U-Top preview shows active quantity (3,000 Pcs)', mixedPreviews.czUTop === 'U-Top: 3,000 Pcs');
 
@@ -273,18 +321,18 @@ assert('U-Top preview shows active quantity (3,000 Pcs)', mixedPreviews.czUTop =
 // ----------------------------------------------------
 console.log('\n--- SECTION 4: Live DOM Preview Updates ---');
 appState.currentEstimate = {
-  categoryGroups: [zipperMultiEndGroup]
+  categoryGroups: [zipperMultiEndGroup, mzMultiEndGroup]
 };
 
 updateCategoryParameterPreviews();
 
 const sliderEl = document.getElementById('preview-slider-g_mixed_ends');
-const pinBoxEl = document.getElementById('preview-pin-box-g_mixed_ends');
 const uTopEl = document.getElementById('preview-cz-utop-g_mixed_ends');
+const pinBoxEl = document.getElementById('preview-pin-box-g_mz_mixed_ends');
 
 assert('preview-slider DOM element updated with text', sliderEl._textSpan && sliderEl._textSpan.textContent === 'Slider: 2,080 Pcs');
-assert('preview-pin-box DOM element updated with text', pinBoxEl._textSpan && pinBoxEl._textSpan.textContent === 'Pin Box: 1,560 Pcs');
 assert('preview-cz-utop DOM element updated with text', uTopEl._textSpan && uTopEl._textSpan.textContent === 'U-Top: 3,000 Pcs');
+assert('preview-pin-box DOM element updated with text for MZ open end', pinBoxEl._textSpan && pinBoxEl._textSpan.textContent === 'Pin Box: 1,560 Pcs');
 
 console.log('\n====================================================');
 console.log(`TOTAL TESTS: ${total} | PASSED: ${passed} | FAILED: ${total - passed}`);

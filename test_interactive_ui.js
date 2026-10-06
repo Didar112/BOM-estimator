@@ -50,7 +50,9 @@ const result = calcEngine.calculateFullEstimate(appState.currentEstimate);
 appState.lastCalculation = result;
 
 const rows = result.aggregatedMaterials.processedRows;
-assert('BOM has 8 processed rows', rows.length === 8);
+assert('BOM has 8 processed rows (Pin Box excluded, universal H-Bottom included for closed-end CZ)', rows.length === 8);
+assert('BOM does not contain PIN BOX for CZ', !rows.some(r => r.component === 'PIN BOX'));
+assert('BOM contains H-BOTTOM for closed-end CZ', rows.some(r => r.component === 'H-BOTTOM'));
 
 // Verify default active material key assignment
 if (!appState.selectedMaterialKey && rows.length > 0) {
@@ -83,7 +85,7 @@ assert('Resin Step 2 shows Divisor 900 and 10.42 KG', resinRow.calculationDetail
 const utopRow = rows.find(r => r.component === 'U-TOP');
 appState.selectedMaterialKey = utopRow.key;
 assert('U-Top Row has calculationDetail', utopRow && utopRow.calculationDetail);
-assert('U-Top Step 2 shows 2 pcs/zipper and 18,760 Pcs', utopRow.calculationDetail.steps[1].formula.includes('2 pcs/zipper') && utopRow.calculationDetail.steps[1].result.includes('18,760 Pcs'));
+assert('U-Top Step 1 shows 2 pcs/zipper and 18,760 Pcs', utopRow.calculationDetail.steps[0].formula.includes('2 pc/zipper') && utopRow.calculationDetail.steps[0].result.includes('18,760 Pcs'));
 
 // --- Test 2: Multi-Group Merging Simulation ---
 appState.currentEstimate.categoryGroups.push({

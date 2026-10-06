@@ -6,11 +6,8 @@
 
 // Default manufacturing allowance in inches per zipper type
 const DEFAULT_ALLOWANCES = {
-  closed_end: 0.75, // 0.75 in (top/bottom tape margin)
   open_end: 1.0,    // 1.0 in (pin/box + top extension)
-  two_way: 1.25,    // 1.25 in
-  invisible: 0.75,  // 0.75 in
-  continuous: 0.0   // continuous chain
+  closed_end: 0.75  // 0.75 in (top/bottom tape margin)
 };
 
 /**
@@ -70,7 +67,7 @@ function getSuggestedAllowance(category = 'cz', size = '#3', unit = 'inch', type
 /**
  * Generate a complete suggested BOM component list based on product/variant configuration
  * @param {Object} config - Variant configuration
- * @param {string} [config.zipperType] - 'closed_end' | 'open_end' | 'two_way' | 'invisible' | 'continuous'
+ * @param {string} [config.zipperType] - 'open_end' | 'closed_end'
  * @param {string} [config.zipperCategory] - 'cz' | 'mz' | 'pz' | 'nylon' | 'metal' | 'plastic' | 'invisible'
  * @param {string} [config.zipperSize] - '#3' | '#4' | '#5' | '#8' | '#10'
  * @param {number} [config.length] - Finished zipper length
@@ -82,7 +79,7 @@ function getSuggestedAllowance(category = 'cz', size = '#3', unit = 'inch', type
 /**
  * Generate a complete suggested BOM component list based on product/variant configuration
  * @param {Object} config - Variant configuration
- * @param {string} [config.zipperType] - 'closed_end' | 'open_end' | 'two_way' | 'invisible' | 'continuous'
+ * @param {string} [config.zipperType] - 'open_end' | 'closed_end'
  * @param {string} [config.zipperCategory] - 'cz' | 'mz' | 'wire' | 'nylon' | 'metal'
  * @param {string} [config.zipperSize] - '#3' | '#4' | '#5' | '#8' | '#10'
  * @param {number} [config.length] - Finished zipper length
@@ -100,6 +97,10 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
 
   const bomRows = [];
   let rowCounter = 1;
+
+  const typeStr = String((config && (config.zipperType || config.endType || config.type)) || '').toLowerCase().trim();
+  const isOpenEnd = (typeStr === 'open_end' || typeStr === 'open-end' || typeStr === 'open ended' || typeStr === 'two_way');
+  const isClosedEnd = !isOpenEnd;
 
   // 1. NYLON / COIL ZIPPER (CZ) FACTORY MATERIALS
   if (cat === 'cz' || cat === 'nylon') {
@@ -193,18 +194,33 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
       allowDelete: false
     });
 
-    // 7. U-Top (only for CZ#5)
-    if (!isSize3) {
+    // 7. U-Top (Universal for CZ)
+    bomRows.push({
+      id: `bom_row_${rowCounter++}`,
+      component: 'U-TOP',
+      componentCategory: 'stop',
+      materialId: `mat_cz_utop_${sizeSuffix}`,
+      materialName: `U-Top (CZ${sizeKey})`,
+      specification: `U-Top Stop for CZ${sizeKey}`,
+      unit: 'Pcs',
+      isLengthDependent: false,
+      unitPrice: 350.00,
+      wastagePercent: 0,
+      allowDelete: false
+    });
+
+    // 8. H-Bottom Stop (Universal for closed-end)
+    if (isClosedEnd) {
       bomRows.push({
         id: `bom_row_${rowCounter++}`,
-        component: 'U-TOP',
+        component: 'H-BOTTOM',
         componentCategory: 'stop',
-        materialId: 'mat_cz_utop_5',
-        materialName: 'U-Top (CZ#5)',
-        specification: 'U-Top Stop for CZ#5',
+        materialId: `mat_cz_h_bottom_${sizeSuffix}`,
+        materialName: `H-Bottom Stop (CZ${sizeKey})`,
+        specification: '+2.5% Loss Factor (1.025)',
         unit: 'Pcs',
         isLengthDependent: false,
-        unitPrice: 350.00,
+        unitPrice: 0.65,
         wastagePercent: 0,
         allowDelete: false
       });
@@ -262,14 +278,14 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
       allowDelete: false
     });
 
-    // 4. Bottom Stop (H-Bottom for MZ#3, Wire for B/S for MZ#5)
-    if (isSize3) {
+    // 4. Bottom Stop (H-Bottom for closed-end, plus Wire for B/S for MZ#5)
+    if (isClosedEnd) {
       bomRows.push({
         id: `bom_row_${rowCounter++}`,
         component: 'H-BOTTOM',
         componentCategory: 'stop',
-        materialId: 'mat_mz_h_bottom_3',
-        materialName: 'H-Bottom Stop (MZ#3)',
+        materialId: `mat_mz_h_bottom_${sizeSuffix}`,
+        materialName: `H-Bottom Stop (MZ${sizeKey})`,
         specification: '+2.5% Loss Factor (1.025)',
         unit: 'Pcs',
         isLengthDependent: false,
@@ -277,7 +293,8 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
         wastagePercent: 0,
         allowDelete: false
       });
-    } else {
+    }
+    if (!isSize3) {
       bomRows.push({
         id: `bom_row_${rowCounter++}`,
         component: 'Wire for B/S# 4&5',
@@ -304,6 +321,21 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
       unit: 'Pcs',
       isLengthDependent: false,
       unitPrice: isSize3 ? 5.20 : 6.80,
+      wastagePercent: 0,
+      allowDelete: false
+    });
+
+    // 6. U-Top Stop (Universal for MZ)
+    bomRows.push({
+      id: `bom_row_${rowCounter++}`,
+      component: 'U-TOP',
+      componentCategory: 'stop',
+      materialId: `mat_mz_utop_${sizeSuffix}`,
+      materialName: `U-Top (MZ${sizeKey})`,
+      specification: `U-Top Stop for MZ${sizeKey}`,
+      unit: 'Pcs',
+      isLengthDependent: false,
+      unitPrice: 350.00,
       wastagePercent: 0,
       allowDelete: false
     });
@@ -408,6 +440,38 @@ function generateSuggestedBOM(config = {}, categoryOverride = null) {
       unit: 'KG',
       isLengthDependent: true,
       unitPrice: 340.00,
+      wastagePercent: 0,
+      allowDelete: false
+    });
+
+    // 4. H-Bottom Stop (Universal for closed-end)
+    if (isClosedEnd) {
+      bomRows.push({
+        id: `bom_row_${rowCounter++}`,
+        component: 'H-BOTTOM',
+        componentCategory: 'stop',
+        materialId: `mat_pz_h_bottom_${sizeSuffix}`,
+        materialName: `H-Bottom Stop (PZ${sizeKey})`,
+        specification: '+2.5% Loss Factor (1.025)',
+        unit: 'Pcs',
+        isLengthDependent: false,
+        unitPrice: 0.65,
+        wastagePercent: 0,
+        allowDelete: false
+      });
+    }
+
+    // 5. U-Top Stop (Universal for PZ)
+    bomRows.push({
+      id: `bom_row_${rowCounter++}`,
+      component: 'U-TOP',
+      componentCategory: 'stop',
+      materialId: `mat_pz_utop_${sizeSuffix}`,
+      materialName: `U-Top (PZ${sizeKey})`,
+      specification: `U-Top Stop for PZ${sizeKey}`,
+      unit: 'Pcs',
+      isLengthDependent: false,
+      unitPrice: 350.00,
       wastagePercent: 0,
       allowDelete: false
     });

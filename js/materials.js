@@ -356,12 +356,78 @@ const SAMPLE_MATERIALS = [
 
   // ==================== 7. U-TOP ====================
   {
+    id: 'mat_cz_utop_3',
+    name: 'U-Top (CZ#3)',
+    componentCategory: 'stop',
+    compatibleCategory: ['cz', 'nylon'],
+    compatibleSizes: ['#3'],
+    specification: 'U-Top Stop for CZ#3',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
     id: 'mat_cz_utop_5',
     name: 'U-Top (CZ#5)',
     componentCategory: 'stop',
     compatibleCategory: ['cz', 'nylon'],
     compatibleSizes: ['#5'],
     specification: 'U-Top Stop for CZ#5',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
+    id: 'mat_mz_utop_3',
+    name: 'U-Top (MZ#3)',
+    componentCategory: 'stop',
+    compatibleCategory: ['mz', 'metal'],
+    compatibleSizes: ['#3'],
+    specification: 'U-Top Stop for MZ#3',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
+    id: 'mat_mz_utop_5',
+    name: 'U-Top (MZ#5)',
+    componentCategory: 'stop',
+    compatibleCategory: ['mz', 'metal'],
+    compatibleSizes: ['#5'],
+    specification: 'U-Top Stop for MZ#5',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
+    id: 'mat_pz_utop_3',
+    name: 'U-Top (PZ#3)',
+    componentCategory: 'stop',
+    compatibleCategory: ['pz', 'plastic'],
+    compatibleSizes: ['#3'],
+    specification: 'U-Top Stop for PZ#3',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
+    id: 'mat_pz_utop_5',
+    name: 'U-Top (PZ#5)',
+    componentCategory: 'stop',
+    compatibleCategory: ['pz', 'plastic'],
+    compatibleSizes: ['#5'],
+    specification: 'U-Top Stop for PZ#5',
+    defaultUnit: 'Pcs',
+    unitPriceBDT: 350.00,
+    defaultWastagePercent: 0
+  },
+  {
+    id: 'mat_pz_utop_8',
+    name: 'U-Top (PZ#8)',
+    componentCategory: 'stop',
+    compatibleCategory: ['pz', 'plastic'],
+    compatibleSizes: ['#8'],
+    specification: 'U-Top Stop for PZ#8',
     defaultUnit: 'Pcs',
     unitPriceBDT: 350.00,
     defaultWastagePercent: 0

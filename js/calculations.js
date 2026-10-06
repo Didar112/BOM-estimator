@@ -310,12 +310,14 @@ function isClassEligibleForDynamicLoss(zipperClass) {
  *   0-200 MTR = 8% (< 200)
  *   200-500 MTR = 7% (200..500)
  *   500-1000 MTR = 3% (501..1000)
- *   1000-2000 MTR = 1.5% (> 1000)
+ *   1000-2000 MTR = 1.5% (1001..2000)
+ *   ABOVE 2000 MTR = 0% (> 2000)
  * 
  * MZC#4 & MZC#5:
  *   0-200 MTR = 8% (< 200)
  *   200-1000 MTR = 2% (200..1000)
- *   1000-2000 MTR = 1.5% (> 1000)
+ *   1000-2000 MTR = 1.5% (1001..2000)
+ *   ABOVE 2000 MTR = 0% (> 2000)
  * 
  * MZO#5:
  *   0-200 MTR = 8% (< 200)
@@ -358,14 +360,16 @@ function getDynamicLossPercentage(zipperClass, combinedBaseChainMtr) {
     if (mtr < 200) return 8.0;
     if (mtr <= 500) return 7.0;
     if (mtr <= 1000) return 3.0;
-    return 1.5;
+    if (mtr <= 2000) return 1.5;
+    return 0.0;
   }
 
   // MZC#4 & MZC#5:
   if (zipperClass === 'MZC#4' || zipperClass === 'MZC#5') {
     if (mtr < 200) return 8.0;
     if (mtr <= 1000) return 2.0;
-    return 1.5;
+    if (mtr <= 2000) return 1.5;
+    return 0.0;
   }
 
   // MZO#5:
@@ -452,6 +456,23 @@ function getHBottomDynamicLossPercentage(quantityPcs) {
 }
 
 /**
+ * Determine dynamic U-Top loss percentage based on total zipper quantity (in PCS).
+ * Factory table (matches pin-box & h-bottom):
+ *   0–500 pcs: 8%
+ *   501–2000 pcs: 4%
+ *   2001+ pcs: 2.5%
+ * 
+ * @param {number} quantityPcs - Total zipper pieces
+ * @returns {number} Loss percentage
+ */
+function getUTopDynamicLossPercentage(quantityPcs) {
+  const qty = Math.max(0, Number(quantityPcs) || 0);
+  if (qty <= 500) return 8.0;
+  if (qty <= 2000) return 4.0;
+  return 2.5;
+}
+
+/**
  * Calculate the total MZ#3 zipper quantity (in PCS) from category variants.
  * H-Bottom is applicable to MZ#3 only.
  * 
@@ -470,15 +491,55 @@ function getRelevantMZ3Quantity(variants) {
 }
 
 /**
- * Calculate the Relevant Zipper Quantity for Pin Box from category variants.
- * Confirmed manufacturing rule: 1 Pin Box per zipper in zipper categories (CZ, MZ, PZ).
+ * Calculate the Relevant Zipper Quantity for H-Bottom from category variants.
+ * Universal rule: H-Bottom is applicable to ALL zipper categories (CZ, MZ, PZ)
+ * when the type is closed-end. Open-ended variants do not receive H-Bottom (0 pcs).
  * 
  * @param {Array<Object>} variants - Group variants
- * @returns {number} Relevant quantity in PCS
+ * @param {string} [category=null] - Category
+ * @returns {number} Relevant closed-end quantity in PCS
  */
-function getRelevantPinBoxQuantity(variants) {
+function getRelevantHBottomQuantity(variants, category = null) {
+  if (category) {
+    const cat = String(category).toLowerCase().trim();
+    if (cat === 'wire') return 0;
+  }
   if (!Array.isArray(variants) || variants.length === 0) return 0;
-  return variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  return variants.reduce((sum, v) => {
+    if (!v) return sum;
+    const vCat = String(v.zipperCategory || v.category || '').toLowerCase().trim();
+    if (vCat === 'wire') return sum;
+    const typeStr = String(v.zipperType || v.endType || v.type || v.zipperEndType || '').toLowerCase().trim();
+    const isOpen = (typeStr === 'open_end' || typeStr === 'open-end' || typeStr === 'open ended' || typeStr === 'two_way');
+    return sum + (!isOpen ? Math.max(0, Number(v.quantity) || 0) : 0);
+  }, 0);
+}
+
+/**
+ * Calculate the Relevant Zipper Quantity for Pin Box from category variants.
+ * Exclusive rule: Pin Box is ONLY applicable to Metal Zippers (MZ) and Open-Ended variants.
+ * Other categories (CZ, PZ, WIRE) or closed-end variants will not have Pin Box (return 0).
+ * 
+ * @param {Array<Object>} variants - Group variants
+ * @param {string} [category] - Zipper category ('mz', 'cz', 'pz', 'wire', etc.)
+ * @returns {number} Relevant quantity in PCS (0 for non-MZ or closed-end)
+ */
+function getRelevantPinBoxQuantity(variants, category = null) {
+  if (category) {
+    const cat = String(category).toLowerCase().trim();
+    if (cat !== 'mz' && cat !== 'metal') {
+      return 0;
+    }
+  }
+  if (!Array.isArray(variants) || variants.length === 0) return 0;
+  return variants.reduce((sum, v) => {
+    if (!v) return sum;
+    const vCat = String(v.zipperCategory || v.category || '').toLowerCase().trim();
+    if (vCat && vCat !== 'mz' && vCat !== 'metal') return sum;
+    const typeStr = String(v.zipperType || v.endType || v.type || v.zipperEndType || '').toLowerCase().trim();
+    const isOpen = (typeStr === 'open_end' || typeStr === 'open-end' || typeStr === 'open ended' || typeStr === 'two_way');
+    return sum + (isOpen ? Math.max(0, Number(v.quantity) || 0) : 0);
+  }, 0);
 }
 
 /**
@@ -519,11 +580,15 @@ function calculateVariantBaseChainMtr(variant, category, groupParams = {}) {
     if (isCm) {
       allowance = (groupParams.cmAllowance !== undefined && groupParams.cmAllowance !== null && !isNaN(groupParams.cmAllowance))
         ? Number(groupParams.cmAllowance)
-        : (is3 ? 4.5 : 5.0);
+        : ((groupParams.chainAllowance !== undefined && groupParams.chainAllowance !== null && !isNaN(groupParams.chainAllowance))
+            ? Number(groupParams.chainAllowance)
+            : (is3 ? 4.5 : 5.0));
     } else {
       allowance = (groupParams.inchAllowance !== undefined && groupParams.inchAllowance !== null && !isNaN(groupParams.inchAllowance))
         ? Number(groupParams.inchAllowance)
-        : (is3 ? 1.78 : 1.97);
+        : ((groupParams.chainAllowance !== undefined && groupParams.chainAllowance !== null && !isNaN(groupParams.chainAllowance))
+            ? Number(groupParams.chainAllowance)
+            : (is3 ? 1.78 : 1.97));
     }
   } else if (cat === 'pz' || cat === 'plastic') {
     const is8 = sizeStr.includes('8');
@@ -999,6 +1064,65 @@ function calculateOtherCosts(otherCostItems, productionQuantity) {
  * @returns {Object} Complete calculated estimate
  */
 /**
+ * Generate a unique grouping key for identical item types and units.
+ * Items of the same category, size/variantKey, and lengthUnit are grouped together.
+ * Different length units (e.g. inch vs cm) produce separate keys.
+ * 
+ * @param {Object} item 
+ * @returns {string} Group key e.g. "cz_5__inch", "mz_3__cm"
+ */
+function getItemTypeGroupKey(item) {
+  if (!item) return 'default__inch';
+  const cat = String(item.category || 'cz').toLowerCase().trim();
+  const sz = String(item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5')).toLowerCase().trim();
+  const unit = String(item.lengthUnit || 'inch').toLowerCase().trim();
+  
+  let baseKey = '';
+  if (item.variantKey) {
+    baseKey = String(item.variantKey).toLowerCase().trim();
+  } else if (cat === 'wire') {
+    if (sz.includes('3')) baseKey = 'wire_3';
+    else if (sz.includes('long')) baseKey = 'wire_5_long';
+    else baseKey = 'wire_5_normal';
+  } else {
+    const cleanSz = sz.replace(/[^0-9]/g, '') || '5';
+    baseKey = `${cat}_${cleanSz}`;
+  }
+
+  return `${baseKey}__${unit}`;
+}
+
+/**
+ * Generate a descriptive display title for an item type group including its unit.
+ * e.g. "CZ#5 (Inch)", "MZ#3 (cm)"
+ * 
+ * @param {string} cat 
+ * @param {string} sz 
+ * @param {string} unit 
+ * @param {string} [variantKey] 
+ * @returns {string}
+ */
+function getGroupDisplayName(cat, sz, unit, variantKey) {
+  let displayName = '';
+  if (variantKey && typeof getVariantDef === 'function') {
+    const vDef = getVariantDef(variantKey);
+    if (vDef) displayName = vDef.displayName;
+  }
+  if (!displayName) {
+    if (cat === 'wire') {
+      if (sz.includes('3')) displayName = 'WIRE#3';
+      else if (sz.includes('long')) displayName = 'WIRE#5 Long Teeth';
+      else displayName = 'WIRE#5 Normal Teeth';
+    } else {
+      const cleanSz = sz.startsWith('#') ? sz : ('#' + sz);
+      displayName = `${cat.toUpperCase()}${cleanSz}`;
+    }
+  }
+  const unitLabel = (unit === 'cm' || unit === 'centimeter') ? 'cm' : 'Inch';
+  return `${displayName} (${unitLabel})`;
+}
+
+/**
  * Master calculation function - calculates independent Category Groups and Merged BOM
  * Supports:
  * 1. Multiple independent category groups (ESTIMATE -> Category Groups -> Variants)
@@ -1016,44 +1140,107 @@ function calculateFullEstimate(estimateState) {
   const otherCosts = estimateState.otherCosts || [];
 
   // Normalize category groups / items from state
+  // Groups same type of items together into a single BoM calculation group.
+  // Items with different length units (inch vs cm) are grouped separately.
   let rawGroups = [];
   if (Array.isArray(estimateState.items) && estimateState.items.length > 0) {
-    rawGroups = estimateState.items.map((item, idx) => ({
-      id: item.id || `item_${idx + 1}`,
-      name: item.displayName || item.name || `Item ${idx + 1}`,
-      category: item.category || 'cz',
-      styleName: item.styleName || '',
-      color: item.color || '',
-      remarks: item.remarks || '',
-      lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (item.category === 'wire' ? (item.zipperSize === '#3' ? 4.0 : 5.0) : 3.0),
-      classLossOverrides: item.classLossOverrides || {},
-      sliderAdditionPercent: item.sliderAdditionPercent,
-      sliderAddPercent: item.sliderAddPercent,
-      isSliderOverridden: item.isSliderOverridden,
-      pinBoxLossPercent: item.pinBoxLossPercent,
-      isPinBoxLossOverridden: item.isPinBoxLossOverridden,
-      pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
-      hBottomLossPercent: item.hBottomLossPercent,
-      isHBottomLossOverridden: item.isHBottomLossOverridden,
-      isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
-      czParams: item.czParams || {},
-      mzParams: item.mzParams || {},
-      wireParams: item.wireParams || {},
-      pzParams: item.pzParams || {},
-      variants: [{
-        id: item.id,
+    const groupMap = new Map();
+
+    estimateState.items.forEach((item, idx) => {
+      const cat = String(item.category || 'cz').toLowerCase().trim();
+      const sz = String(item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5')).toLowerCase().trim();
+      const unit = String(item.lengthUnit || 'inch').toLowerCase().trim();
+      const groupKey = getItemTypeGroupKey(item);
+
+      if (!groupMap.has(groupKey)) {
+        const groupName = getGroupDisplayName(cat, sz, unit, item.variantKey);
+        groupMap.set(groupKey, {
+          id: `group_${groupKey}`,
+          key: groupKey,
+          name: groupName,
+          category: cat,
+          zipperSize: item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5'),
+          lengthUnit: unit,
+          styleName: item.styleName || '',
+          color: item.color || '',
+          remarks: item.remarks || '',
+          lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (cat === 'wire' ? (sz === '#3' ? 4.0 : 5.0) : 3.0),
+          classLossOverrides: {},
+          sliderAdditionPercent: item.sliderAdditionPercent,
+          sliderAddPercent: item.sliderAddPercent,
+          isSliderOverridden: false,
+          pinBoxLossPercent: item.pinBoxLossPercent,
+          isPinBoxLossOverridden: false,
+          pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
+          hBottomLossPercent: item.hBottomLossPercent,
+          isHBottomLossOverridden: false,
+          isSpecialUTopOrder: false,
+          czParams: {},
+          mzParams: {},
+          wireParams: {},
+          pzParams: {},
+          items: [],
+          variants: []
+        });
+      }
+
+      const grp = groupMap.get(groupKey);
+      grp.items.push(item);
+
+      // Merge overrides and parameters
+      if (item.classLossOverrides) {
+        Object.assign(grp.classLossOverrides, item.classLossOverrides);
+      }
+      if (item.isSliderOverridden) {
+        grp.isSliderOverridden = true;
+        if (item.sliderAdditionPercent !== undefined && item.sliderAdditionPercent !== null) {
+          grp.sliderAdditionPercent = item.sliderAdditionPercent;
+          grp.sliderAddPercent = item.sliderAdditionPercent;
+        }
+      }
+      if (item.isPinBoxLossOverridden) {
+        grp.isPinBoxLossOverridden = true;
+        if (item.pinBoxLossPercent !== undefined && item.pinBoxLossPercent !== null) {
+          grp.pinBoxLossPercent = item.pinBoxLossPercent;
+        }
+      }
+      if (item.isHBottomLossOverridden) {
+        grp.isHBottomLossOverridden = true;
+        if (item.hBottomLossPercent !== undefined && item.hBottomLossPercent !== null) {
+          grp.hBottomLossPercent = item.hBottomLossPercent;
+        }
+      }
+      if (item.isUTopLossOverridden) {
+        grp.isUTopLossOverridden = true;
+        if (item.uTopLossPercent !== undefined && item.uTopLossPercent !== null) {
+          grp.uTopLossPercent = item.uTopLossPercent;
+        }
+      }
+      if (item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder) || (item.mzParams && item.mzParams.isSpecialUTopOrder) || (item.pzParams && item.pzParams.isSpecialUTopOrder)) {
+        grp.isSpecialUTopOrder = true;
+      }
+      if (item.czParams) Object.assign(grp.czParams, item.czParams);
+      if (item.mzParams) Object.assign(grp.mzParams, item.mzParams);
+      if (item.wireParams) Object.assign(grp.wireParams, item.wireParams);
+      if (item.pzParams) Object.assign(grp.pzParams, item.pzParams);
+
+      grp.variants.push({
+        id: item.id || `item_${idx + 1}`,
+        itemId: item.id,
         name: item.displayName || item.name || `Item ${idx + 1}`,
-        zipperSize: item.zipperSize || '#5',
+        zipperSize: item.zipperSize || grp.zipperSize,
         zipperType: item.zipperType || 'closed_end',
         length: item.length !== undefined && item.length !== null ? item.length : 0,
-        lengthUnit: item.lengthUnit || 'inch',
+        lengthUnit: item.lengthUnit || grp.lengthUnit,
         allowance: item.allowance !== undefined ? item.allowance : 0,
         quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 0,
         color: item.color || '',
         remarks: item.remarks || '',
         bomRows: item.bomRows || []
-      }]
-    }));
+      });
+    });
+
+    rawGroups = Array.from(groupMap.values());
   } else if (Array.isArray(estimateState.categoryGroups) && estimateState.categoryGroups.length > 0) {
     rawGroups = estimateState.categoryGroups;
   } else {
@@ -1140,36 +1327,70 @@ function calculateFullEstimate(estimateState) {
       group.sliderAddPercent = effectiveSliderPercent;
     }
 
-    const relevantPinBoxQty = getRelevantPinBoxQuantity(variants);
-    const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupTotalZipperQty;
+    const isMz = (groupCategory === 'mz' || groupCategory === 'metal');
+    const relevantPinBoxQty = isMz ? getRelevantPinBoxQuantity(variants, groupCategory) : 0;
     const isPinBoxLossOverridden = Boolean(group.isPinBoxLossOverridden);
     let effectivePinBoxLossPercent = null;
-    if (isPinBoxLossOverridden && group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null) {
-      effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
-    } else if (group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null) {
-      effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
-    } else {
-      effectivePinBoxLossPercent = getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+    if (isMz && relevantPinBoxQty > 0) {
+      if (isPinBoxLossOverridden && group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null) {
+        effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
+      } else if (group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null && group.isPinBoxLossOverridden) {
+        effectivePinBoxLossPercent = Number(group.pinBoxLossPercent);
+      } else {
+        effectivePinBoxLossPercent = getPinBoxDynamicLossPercentage(groupTotalZipperQty);
+        group.pinBoxLossPercent = effectivePinBoxLossPercent;
+      }
     }
 
-    const mz3ScopeQty = getRelevantMZ3Quantity(variants);
+    const isZipperCategory = (groupCategory === 'cz' || groupCategory === 'mz' || groupCategory === 'pz' || groupCategory === 'nylon' || groupCategory === 'metal' || groupCategory === 'plastic');
+    const relevantClosedEndQty = isZipperCategory ? getRelevantHBottomQuantity(variants, groupCategory) : 0;
     const isHBottomLossOverridden = Boolean(group.isHBottomLossOverridden);
     let effectiveHBottomLossPercent = null;
-    const currentHBottomLoss = (group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
-      ? Number(group.mzParams.hBottomLossPercent)
-      : (group.hBottomLossPercent !== undefined && group.hBottomLossPercent !== null ? Number(group.hBottomLossPercent) : null);
+    const currentHBottomLoss = (group.czParams && group.czParams.hBottomLossPercent !== undefined && group.czParams.hBottomLossPercent !== null)
+      ? Number(group.czParams.hBottomLossPercent)
+      : ((group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
+        ? Number(group.mzParams.hBottomLossPercent)
+        : ((group.pzParams && group.pzParams.hBottomLossPercent !== undefined && group.pzParams.hBottomLossPercent !== null)
+          ? Number(group.pzParams.hBottomLossPercent)
+          : (group.hBottomLossPercent !== undefined && group.hBottomLossPercent !== null ? Number(group.hBottomLossPercent) : null)));
 
-    if (isHBottomLossOverridden && currentHBottomLoss !== null) {
-      effectiveHBottomLossPercent = currentHBottomLoss;
-    } else if (currentHBottomLoss !== null && currentHBottomLoss !== 2.5) {
-      effectiveHBottomLossPercent = currentHBottomLoss;
-    } else {
-      effectiveHBottomLossPercent = getHBottomDynamicLossPercentage(mz3ScopeQty);
+    if (isZipperCategory && relevantClosedEndQty > 0) {
+      if (isHBottomLossOverridden && currentHBottomLoss !== null) {
+        effectiveHBottomLossPercent = currentHBottomLoss;
+      } else if (currentHBottomLoss !== null && group.isHBottomLossOverridden) {
+        effectiveHBottomLossPercent = currentHBottomLoss;
+      } else {
+        effectiveHBottomLossPercent = getHBottomDynamicLossPercentage(groupTotalZipperQty);
+        group.hBottomLossPercent = effectiveHBottomLossPercent;
+      }
+    }
+
+    const isUTopLossOverridden = Boolean(group.isUTopLossOverridden);
+    let effectiveUTopLossPercent = null;
+    const currentUTopLoss = (group.czParams && group.czParams.uTopLossPercent !== undefined && group.czParams.uTopLossPercent !== null)
+      ? Number(group.czParams.uTopLossPercent)
+      : ((group.mzParams && group.mzParams.uTopLossPercent !== undefined && group.mzParams.uTopLossPercent !== null)
+        ? Number(group.mzParams.uTopLossPercent)
+        : ((group.pzParams && group.pzParams.uTopLossPercent !== undefined && group.pzParams.uTopLossPercent !== null)
+          ? Number(group.pzParams.uTopLossPercent)
+          : (group.uTopLossPercent !== undefined && group.uTopLossPercent !== null ? Number(group.uTopLossPercent) : null)));
+
+    if (isZipperCategory && groupTotalZipperQty > 0) {
+      if (isUTopLossOverridden && currentUTopLoss !== null) {
+        effectiveUTopLossPercent = currentUTopLoss;
+      } else if (currentUTopLoss !== null && group.isUTopLossOverridden) {
+        effectiveUTopLossPercent = currentUTopLoss;
+      } else if (group.uTopLossPercent !== undefined && group.uTopLossPercent !== null) {
+        effectiveUTopLossPercent = Number(group.uTopLossPercent);
+      } else {
+        effectiveUTopLossPercent = getUTopDynamicLossPercentage(groupTotalZipperQty);
+      }
+      group.uTopLossPercent = effectiveUTopLossPercent;
     }
 
     let groupResult = null;
 
-    const isSpecialUTopOrder = Boolean(group.isSpecialUTopOrder || (group.czParams && group.czParams.isSpecialUTopOrder));
+    const isSpecialUTopOrder = Boolean(group.isSpecialUTopOrder || (group.czParams && group.czParams.isSpecialUTopOrder) || (group.mzParams && group.mzParams.isSpecialUTopOrder) || (group.pzParams && group.pzParams.isSpecialUTopOrder));
 
     if (groupCategory === 'cz' || groupCategory === 'nylon') {
       if (czEngine) {
@@ -1178,10 +1399,15 @@ function calculateFullEstimate(estimateState) {
           classLossPercentages: classLossPercentages,
           sliderAdditionPercent: effectiveSliderPercent,
           pinBoxLossPercent: effectivePinBoxLossPercent,
-          pinBoxPerZipper: pinBoxPerZipper,
+          hBottomLossPercent: effectiveHBottomLossPercent,
+          relevantHBottomQuantity: relevantClosedEndQty,
           isSpecialUTopOrder: isSpecialUTopOrder,
+          uTopLossPercent: effectiveUTopLossPercent,
+          overallTotalQuantity: groupTotalZipperQty,
           czParams: {
             ...(group.czParams || {}),
+            hBottomLossPercent: effectiveHBottomLossPercent,
+            uTopLossPercent: effectiveUTopLossPercent,
             isSpecialUTopOrder: isSpecialUTopOrder
           },
           priceOverrides: estimateState.priceOverrides || {}
@@ -1194,11 +1420,18 @@ function calculateFullEstimate(estimateState) {
           classLossPercentages: classLossPercentages,
           sliderAdditionPercent: effectiveSliderPercent,
           pinBoxLossPercent: effectivePinBoxLossPercent,
-          pinBoxPerZipper: pinBoxPerZipper,
+          pinBoxPerZipper: relevantPinBoxQty > 0 ? pinBoxPerZipper : 0,
+          relevantPinBoxQuantity: relevantPinBoxQty,
           hBottomLossPercent: effectiveHBottomLossPercent,
+          relevantHBottomQuantity: relevantClosedEndQty,
+          isSpecialUTopOrder: isSpecialUTopOrder,
+          uTopLossPercent: effectiveUTopLossPercent,
+          overallTotalQuantity: groupTotalZipperQty,
           mzParams: {
             ...(group.mzParams || {}),
-            hBottomLossPercent: effectiveHBottomLossPercent
+            hBottomLossPercent: effectiveHBottomLossPercent,
+            uTopLossPercent: effectiveUTopLossPercent,
+            isSpecialUTopOrder: isSpecialUTopOrder
           },
           priceOverrides: estimateState.priceOverrides || {}
         });
@@ -1218,9 +1451,17 @@ function calculateFullEstimate(estimateState) {
           lossPercent: groupLossPercent,
           classLossPercentages: classLossPercentages,
           sliderAdditionPercent: effectiveSliderPercent,
-          pinBoxLossPercent: effectivePinBoxLossPercent,
-          pinBoxPerZipper: pinBoxPerZipper,
-          pzParams: group.pzParams || {},
+          hBottomLossPercent: effectiveHBottomLossPercent,
+          relevantHBottomQuantity: relevantClosedEndQty,
+          isSpecialUTopOrder: isSpecialUTopOrder,
+          uTopLossPercent: effectiveUTopLossPercent,
+          overallTotalQuantity: groupTotalZipperQty,
+          pzParams: {
+            ...(group.pzParams || {}),
+            hBottomLossPercent: effectiveHBottomLossPercent,
+            uTopLossPercent: effectiveUTopLossPercent,
+            isSpecialUTopOrder: isSpecialUTopOrder
+          },
           priceOverrides: estimateState.priceOverrides || {}
         });
       }
@@ -1291,8 +1532,11 @@ function calculateFullEstimate(estimateState) {
 
       calculatedGroups.push({
         id: groupId,
+        key: group.key || null,
         name: group.name || `Category Group ${gIdx + 1}`,
         category: groupCategory,
+        zipperSize: group.zipperSize || (variants[0] && variants[0].zipperSize) || '#5',
+        lengthUnit: group.lengthUnit || (variants[0] && variants[0].lengthUnit) || 'inch',
         styleName: group.styleName || '',
         color: group.color || '',
         remarks: group.remarks || '',
@@ -1303,11 +1547,12 @@ function calculateFullEstimate(estimateState) {
         sliderAdditionPercent: effectiveSliderPercent,
         sliderAddPercent: effectiveSliderPercent,
         isSliderOverridden: isSliderOverridden,
-        pinBoxLossPercent: effectivePinBoxLossPercent,
-        isPinBoxLossOverridden: isPinBoxLossOverridden,
-        pinBoxPerZipper: pinBoxPerZipper,
-        hBottomLossPercent: effectiveHBottomLossPercent,
-        isHBottomLossOverridden: isHBottomLossOverridden,
+        pinBoxLossPercent: (isMz && relevantPinBoxQty > 0) ? effectivePinBoxLossPercent : null,
+        isPinBoxLossOverridden: (isMz && relevantPinBoxQty > 0) ? isPinBoxLossOverridden : false,
+        pinBoxPerZipper: (isMz && relevantPinBoxQty > 0) ? pinBoxPerZipper : 0,
+        hBottomLossPercent: (isZipperCategory && relevantClosedEndQty > 0) ? effectiveHBottomLossPercent : null,
+        isHBottomLossOverridden: (isZipperCategory && relevantClosedEndQty > 0) ? isHBottomLossOverridden : false,
+        relevantHBottomQuantity: relevantClosedEndQty,
         isSpecialUTopOrder: isSpecialUTopOrder,
         czParams: group.czParams || {},
         mzParams: group.mzParams || {},
@@ -1323,8 +1568,11 @@ function calculateFullEstimate(estimateState) {
       // Empty group without calculated output
       calculatedGroups.push({
         id: groupId,
+        key: group.key || null,
         name: group.name || `Category Group ${gIdx + 1}`,
         category: groupCategory,
+        zipperSize: group.zipperSize || (variants[0] && variants[0].zipperSize) || '#5',
+        lengthUnit: group.lengthUnit || (variants[0] && variants[0].lengthUnit) || 'inch',
         styleName: group.styleName || '',
         color: group.color || '',
         remarks: group.remarks || '',
@@ -1335,11 +1583,12 @@ function calculateFullEstimate(estimateState) {
         sliderAdditionPercent: effectiveSliderPercent,
         sliderAddPercent: effectiveSliderPercent,
         isSliderOverridden: isSliderOverridden,
-        pinBoxLossPercent: effectivePinBoxLossPercent,
-        isPinBoxLossOverridden: isPinBoxLossOverridden,
-        pinBoxPerZipper: pinBoxPerZipper,
-        hBottomLossPercent: effectiveHBottomLossPercent,
-        isHBottomLossOverridden: isHBottomLossOverridden,
+        pinBoxLossPercent: (isMz && relevantPinBoxQty > 0) ? effectivePinBoxLossPercent : null,
+        isPinBoxLossOverridden: (isMz && relevantPinBoxQty > 0) ? isPinBoxLossOverridden : false,
+        pinBoxPerZipper: (isMz && relevantPinBoxQty > 0) ? pinBoxPerZipper : 0,
+        hBottomLossPercent: (isZipperCategory && relevantClosedEndQty > 0) ? effectiveHBottomLossPercent : null,
+        isHBottomLossOverridden: (isZipperCategory && relevantClosedEndQty > 0) ? isHBottomLossOverridden : false,
+        relevantHBottomQuantity: relevantClosedEndQty,
         isSpecialUTopOrder: isSpecialUTopOrder,
         czParams: group.czParams || {},
         mzParams: group.mzParams || {},
@@ -1393,7 +1642,15 @@ function calculateFullEstimate(estimateState) {
   const defaultActiveGroup = calculatedGroups.find(g => g.calculation && g.totalQuantity > 0) || calculatedGroups[0];
 
   return {
-    items: calculatedGroups,
+    items: estimateState.items ? estimateState.items.map(it => {
+      const g = calculatedGroups.find(grp => grp.variants && grp.variants.some(v => v.id === it.id || v.itemId === it.id)) || calculatedGroups[0];
+      return {
+        ...it,
+        groupId: g ? g.id : null,
+        calculation: g ? g.calculation : null,
+        materials: g ? g.materials : null
+      };
+    }) : calculatedGroups,
     categoryGroups: calculatedGroups,
     activeItemId: defaultActiveGroup ? defaultActiveGroup.id : null,
     activeGroupId: defaultActiveGroup ? defaultActiveGroup.id : null,
@@ -1455,23 +1712,64 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
   let totalWastageCost = 0;
 
   allRows.forEach(r => {
-    // Identity key ensures genuine compatibility: materialId or component + specification + unit
+    // Identity key ensures genuine compatibility
     const matId = (r.materialId && r.materialId !== 'custom') ? r.materialId.trim().toLowerCase() : null;
     const compKey = (r.component || '').trim().toLowerCase();
     const specKey = (r.materialName || r.specification || '').trim().toLowerCase();
     const unitKey = (r.unit || '').trim().toLowerCase();
     const catKey = (r.groupCategory || '').trim().toLowerCase();
 
-    // Key preserves category distinction unless material is truly generic/universal
-    const key = matId 
-      ? `mat_${matId}_${unitKey}`
-      : `cat_${catKey}_comp_${compKey}_spec_${specKey}_${unitKey}`;
+    const isCustom = Boolean(r.materialId === 'custom' || r.isCustom);
+
+    // Common / Universal items across all zipper categories
+    // 1. U-Top stop
+    const isUTop = compKey === 'u-top' || compKey === 'utop' || 
+                   (matId && matId.includes('utop')) || 
+                   specKey.includes('u-top');
+
+    // 2. H-Bottom stop
+    const isHBottom = compKey === 'h-bottom' || compKey === 'hbottom' || 
+                      (matId && matId.includes('h_bottom')) || 
+                      specKey.includes('h-bottom');
+
+    let key;
+    if (isUTop) {
+      key = `common_utop_${unitKey || 'pcs'}`;
+    } else if (isHBottom) {
+      key = `common_h_bottom_${unitKey || 'pcs'}`;
+    } else if (isCustom) {
+      key = `custom_${compKey}_${unitKey}`;
+    } else {
+      // Category-specific materials (Tapes, Sliders, Forming Wires, Resins, Tollilon, Chains, Pin & Box, Stop Wires in KG)
+      const isCategorySpecific = (
+        compKey.includes('tape') || (matId && matId.includes('tape')) ||
+        compKey.includes('slider') || (matId && matId.includes('slider')) ||
+        compKey.includes('wire') || (matId && matId.includes('wire')) ||
+        compKey.includes('teeth') || (matId && matId.includes('teeth')) ||
+        compKey.includes('resin') || (matId && matId.includes('resin')) ||
+        compKey.includes('pom') ||
+        compKey.includes('tollilon') || (matId && matId.includes('tollilon')) ||
+        compKey.includes('chain') || (matId && matId.includes('chain')) ||
+        compKey.includes('pin') || (matId && matId.includes('pin')) ||
+        compKey.includes('t/s') || (matId && matId.includes('_ts_')) ||
+        compKey.includes('b/s') || (matId && matId.includes('_bs_'))
+      );
+
+      if (isCategorySpecific) {
+        key = matId 
+          ? `mat_${matId}_${unitKey}`
+          : `cat_${catKey}_comp_${compKey}_spec_${specKey}_${unitKey}`;
+      } else {
+        // Generic / common item across categories
+        key = `common_comp_${compKey}_spec_${specKey}_${unitKey}`;
+      }
+    }
 
     if (!materialMap.has(key)) {
       materialMap.set(key, {
         key: key,
         component: r.component,
-        componentCategory: r.componentCategory || 'other',
+        componentCategory: r.componentCategory || (isUTop || isHBottom ? 'stop' : 'other'),
         materialId: r.materialId,
         materialName: r.materialName,
         specification: r.specification,
@@ -1487,8 +1785,14 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
         groupNames: [],
         _prices: [],
         _wastages: [],
+        _materialIds: [],
+        _materialNames: [],
+        _specifications: [],
+        _sizes: [],
         formulaNotes: [],
-        contributingSources: []
+        contributingSources: [],
+        isUTop,
+        isHBottom
       });
     }
 
@@ -1500,6 +1804,23 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
 
     entry._prices.push(Number(r.unitPrice) || 0);
     entry._wastages.push(Number(r.wastagePercent) || 0);
+
+    if (r.materialId && !entry._materialIds.includes(r.materialId)) {
+      entry._materialIds.push(r.materialId);
+    }
+    if (r.materialName && !entry._materialNames.includes(r.materialName)) {
+      entry._materialNames.push(r.materialName);
+    }
+    if (r.specification && !entry._specifications.includes(r.specification)) {
+      entry._specifications.push(r.specification);
+    }
+
+    // Extract size from materialName, specification, materialId, or calculationDetail
+    const rawSearchStr = `${r.materialName || ''} ${r.specification || ''} ${r.materialId || ''} ${(r.calculationDetail && r.calculationDetail.size) || ''}`;
+    const sizeMatch = rawSearchStr.match(/#[0-9]+/);
+    if (sizeMatch && !entry._sizes.includes(sizeMatch[0])) {
+      entry._sizes.push(sizeMatch[0]);
+    }
 
     const groupLabel = r.groupName || r.groupId || 'Group';
     if (!entry.groupNames.includes(groupLabel)) {
@@ -1539,17 +1860,117 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
       ? item._prices[0]
       : (item.totalQuantity > 0 ? (item.baseMaterialCost / item.totalQuantity) : (item._prices[0] || 0));
 
+    // Weighted wastage percent
+    const allWastagesSame = item._wastages.length > 0 && item._wastages.every(w => Math.abs(w - item._wastages[0]) < 0.0001);
+    const finalWastagePercent = allWastagesSame
+      ? (item._wastages[0] || 0)
+      : (item.baseMaterialCost > 0 ? (item.wastageCost / item.baseMaterialCost) * 100 : (item._wastages[0] || 0));
+
+    let finalComponent = item.component;
+    let finalMaterialName = item.materialName;
+    let finalSpecification = item.specification;
+    let finalMaterialId = item.materialId;
+
+    const isMultiCategory = item.usedInCategories.length > 1;
+    const isMultiSource = item.contributingSources.length > 1;
+
+    if (item.isUTop) {
+      finalComponent = 'U-TOP';
+      if (isMultiCategory) {
+        finalMaterialId = 'mat_common_utop';
+        if (item._sizes.length === 1) {
+          finalMaterialName = `U-Top Stop (${item._sizes[0]})`;
+        } else if (item._sizes.length > 1) {
+          finalMaterialName = `U-Top Stop (${item._sizes.join(', ')})`;
+        } else {
+          finalMaterialName = 'U-Top Stop';
+        }
+
+        const allSpecial = item.contributingSources.every(s => s.calculationDetail && s.calculationDetail.isSpecialOrder);
+        const allNormal = item.contributingSources.every(s => s.calculationDetail && s.calculationDetail.isSpecialOrder === false);
+        if (allSpecial) {
+          finalSpecification = 'U-Top Stop (Special Order: 1 pc/zipper)';
+        } else if (allNormal) {
+          finalSpecification = 'U-Top Stop (2 pcs/zipper)';
+        } else {
+          finalSpecification = 'Universal U-Top Stop across zipper categories';
+        }
+      } else {
+        // Single category
+        finalMaterialId = item._materialIds[0] || item.materialId;
+        if (isMultiSource) {
+          if (item._sizes.length === 1) {
+            finalMaterialName = `U-Top (${item.usedInCategories[0]}${item._sizes[0]})`;
+          } else {
+            finalMaterialName = `U-Top (${item.usedInCategories[0]})`;
+          }
+        }
+      }
+    } else if (item.isHBottom) {
+      finalComponent = 'H-BOTTOM';
+      if (isMultiCategory) {
+        finalMaterialId = 'mat_common_h_bottom';
+        if (item._sizes.length === 1) {
+          finalMaterialName = `H-Bottom Stop (${item._sizes[0]})`;
+        } else if (item._sizes.length > 1) {
+          finalMaterialName = `H-Bottom Stop (${item._sizes.join(', ')})`;
+        } else {
+          finalMaterialName = 'H-Bottom Stop';
+        }
+        finalSpecification = 'Universal H-Bottom Stop (Closed-End)';
+      } else {
+        // Single category
+        finalMaterialId = item._materialIds[0] || item.materialId;
+        if (isMultiSource) {
+          if (item._sizes.length === 1) {
+            finalMaterialName = `H-Bottom Stop (${item.usedInCategories[0]}${item._sizes[0]})`;
+          } else {
+            finalMaterialName = `H-Bottom Stop (${item.usedInCategories[0]})`;
+          }
+        }
+      }
+    } else if (isMultiCategory && isMultiSource) {
+      finalMaterialId = item._materialIds.length === 1 ? item._materialIds[0] : (item.materialId || `mat_common_${idx + 1}`);
+      if (item._materialNames.length === 1) {
+        finalMaterialName = item._materialNames[0];
+      }
+    }
+
+    // Consolidated calculation detail
+    let consolidatedCalcDetail = null;
+    if (item.contributingSources.length === 1 && item.contributingSources[0].calculationDetail) {
+      consolidatedCalcDetail = item.contributingSources[0].calculationDetail;
+    } else if (item.contributingSources.length > 1) {
+      const allSteps = item.contributingSources.flatMap(s => (s.calculationDetail && s.calculationDetail.steps) || []);
+      const sourcesFormula = item.contributingSources.map((s, i) => 
+        `Source ${i + 1} [${s.groupName || 'Group'} (${(s.groupCategory || '').toUpperCase()})]: ${(Number(s.quantity) || 0).toLocaleString('en-US')} ${item.unit}`
+      ).join(' +\n');
+
+      consolidatedCalcDetail = {
+        materialName: finalMaterialName,
+        component: finalComponent,
+        unit: item.unit,
+        displayUnit: item.unit,
+        isMerged: true,
+        sourcesCount: item.contributingSources.length,
+        baseFormula: `Consolidated Requirement across ${item.contributingSources.length} Category Groups:\n${sourcesFormula}\n= ${(Number(item.totalQuantity) || 0).toLocaleString('en-US')} ${item.unit} Total Merged BOM Requirement`,
+        steps: allSteps
+      };
+    }
+
     return {
       index: idx + 1,
+      id: item.key,
       key: item.key,
-      component: item.component,
+      component: finalComponent,
       componentCategory: item.componentCategory,
-      materialId: item.materialId,
-      materialName: item.materialName,
-      specification: item.specification,
+      materialId: finalMaterialId,
+      materialIds: item._materialIds,
+      materialName: finalMaterialName,
+      specification: finalSpecification,
       unit: item.unit,
       unitPrice: finalUnitPrice,
-      wastagePercent: item._wastages[0] || 0,
+      wastagePercent: finalWastagePercent,
       totalQuantity: item.totalQuantity,
       baseMaterialCost: item.baseMaterialCost,
       wastageCost: item.wastageCost,
@@ -1558,9 +1979,7 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
       groupNames: item.groupNames,
       usedInCategories: item.usedInCategories,
       contributingSources: item.contributingSources,
-      calculationDetail: (item.contributingSources.length === 1 && item.contributingSources[0].calculationDetail)
-        ? item.contributingSources[0].calculationDetail
-        : null,
+      calculationDetail: consolidatedCalcDetail,
       avgQtyPerZipper,
       costPerZipper,
       formulaNote: item.formulaNotes.join('; ')
@@ -1578,6 +1997,176 @@ function buildMergedBOM(allRows, totalOrderQuantity) {
     totalMaterialCost,
     materialCostPerZipper
   };
+}
+
+/**
+ * Factory standard static parameters for each item variant and unit
+ * @param {string} variantKey e.g. 'cz_5', 'cz_3', 'mz_3', 'mz_5', 'wire_3', 'wire_5_normal', 'wire_5_long', 'pz_3', 'pz_5', 'pz_8'
+ * @param {string} [lengthUnit='inch'] 'inch' | 'cm'
+ * @returns {Object}
+ */
+function getStandardStaticParameters(variantKey, lengthUnit = 'inch') {
+  const vKey = String(variantKey || 'cz_5').toLowerCase().trim();
+  const unit = (String(lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const isCm = unit === 'cm';
+
+  // 1. Nylon Zipper CZ
+  if (vKey === 'cz_3') {
+    return {
+      chainAllowance: isCm ? 4.0 : 1.58,
+      tapeDivisor: 87.0,
+      topStopFactor: 0.02,
+      bottomStopFactor: 0.03,
+      resinDivisor: 1000,
+      tollilon1Divisor: 14400,
+      tollilon2Divisor: 9500,
+      isSpecialUTopOrder: false
+    };
+  }
+  if (vKey === 'cz_5' || vKey === 'cz') {
+    return {
+      chainAllowance: isCm ? 4.5 : 1.78,
+      tapeDivisor: 54.5,
+      topStopFactor: 0.04,
+      bottomStopFactor: 0.04,
+      resinDivisor: 900,
+      tollilon1Divisor: 7700,
+      tollilon2Divisor: 8600,
+      isSpecialUTopOrder: false
+    };
+  }
+
+  // 2. Metal Zipper MZ
+  if (vKey === 'mz_3') {
+    return {
+      chainAllowance: isCm ? 4.5 : 1.78,
+      tapeDivisor: 97.0,
+      teethWireDivisor: 32.0,
+      teethWireLossFactor: 1.04,
+      topStopFactor: 0.22,
+      topStopDivisor: 1000,
+      isSpecialUTopOrder: false
+    };
+  }
+  if (vKey === 'mz_5' || vKey === 'mz') {
+    return {
+      chainAllowance: isCm ? 5.0 : 1.97,
+      tapeDivisor: 71.0,
+      topStopFactor: 0.32,
+      topStopDivisor: 1000,
+      bottomStopFactor: 0.172,
+      bottomStopDivisor: 1000,
+      isSpecialUTopOrder: false
+    };
+  }
+
+  // 3. Brass / Metal Wire
+  if (vKey === 'wire_3') {
+    return {
+      inchWireDivisor: 32.0,
+      cmWireDivisor: 27.73
+    };
+  }
+  if (vKey === 'wire_5_long') {
+    return {
+      wireAllowance: isCm ? 5.0 : 1.97,
+      wireDivisor: 20.6
+    };
+  }
+  if (vKey === 'wire_5_normal' || vKey === 'wire') {
+    return {
+      wireDivisor: 20.6
+    };
+  }
+
+  // 4. Plastic Zipper PZ
+  if (vKey === 'pz_3') {
+    return {
+      chainAllowance: isCm ? 5.0 : 1.97,
+      tapeDivisor: 101.0,
+      tapeAdditionalPercent: 2.5,
+      tapeFactor: 8.15,
+      isSpecialUTopOrder: false
+    };
+  }
+  if (vKey === 'pz_5' || vKey === 'pz') {
+    return {
+      chainAllowance: isCm ? 5.0 : 1.97,
+      tapeDivisor: 81.0,
+      tapeAdditionalPercent: 2.5,
+      tapeFactor: 13.07,
+      isSpecialUTopOrder: false
+    };
+  }
+  if (vKey === 'pz_8') {
+    return {
+      chainAllowance: isCm ? 6.3 : 2.4,
+      tapeDivisor: 57.0,
+      tapeAdditionalPercent: 2.5,
+      tapeFactor: 26.23,
+      isSpecialUTopOrder: false
+    };
+  }
+
+  return {};
+}
+
+/**
+ * Extract active static parameters from an item or group based on its variant and unit
+ * @param {Object} item 
+ * @returns {Object}
+ */
+function getItemStaticParameters(item) {
+  if (!item) return {};
+  const cat = String(item.category || '').toLowerCase().trim();
+  const vKey = item.variantKey || ((cat === 'wire') ? ((item.zipperSize && item.zipperSize.includes('3')) ? 'wire_3' : ((item.zipperSize && item.zipperSize.includes('long')) ? 'wire_5_long' : 'wire_5_normal')) : (item.zipperSize ? `${cat}_${String(item.zipperSize).replace(/[^0-9]/g, '')}` : cat));
+  const unit = (String(item.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const std = getStandardStaticParameters(vKey, unit);
+  const result = {};
+
+  const paramBag = (cat === 'cz') ? (item.czParams || {})
+                 : (cat === 'mz') ? (item.mzParams || {})
+                 : (cat === 'wire') ? (item.wireParams || {})
+                 : (cat === 'pz') ? (item.pzParams || {})
+                 : {};
+
+  Object.keys(std).forEach(key => {
+    if (key === 'isSpecialUTopOrder') {
+      result[key] = Boolean(item.isSpecialUTopOrder || paramBag.isSpecialUTopOrder);
+    } else if (paramBag[key] !== undefined && paramBag[key] !== null && paramBag[key] !== '') {
+      result[key] = Number(paramBag[key]);
+    } else if ((key === 'chainAllowance' || key === 'wireAllowance') && item.allowance !== undefined && item.allowance !== null && item.allowance !== '') {
+      result[key] = Number(item.allowance);
+    } else {
+      result[key] = std[key];
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Compare current static parameters against standard baseline.
+ * Returns true if ANY static parameter has been modified.
+ * @param {string} variantKey 
+ * @param {string} lengthUnit 
+ * @param {Object} currentParams 
+ * @returns {boolean}
+ */
+function isStaticParametersModified(variantKey, lengthUnit = 'inch', currentParams = {}) {
+  const std = getStandardStaticParameters(variantKey, lengthUnit);
+  for (const key of Object.keys(std)) {
+    if (currentParams[key] === undefined || currentParams[key] === null) continue;
+    if (typeof std[key] === 'boolean') {
+      if (Boolean(currentParams[key]) !== Boolean(std[key])) return true;
+    } else {
+      const curNum = Number(currentParams[key]);
+      const stdNum = Number(std[key]);
+      if (isNaN(curNum) || isNaN(stdNum)) continue;
+      if (Math.abs(curNum - stdNum) > 0.0001) return true;
+    }
+  }
+  return false;
 }
 
 // Export for global access in Vanilla JS and Node.js
@@ -1604,10 +2193,17 @@ if (typeof window !== 'undefined') {
     getSliderDynamicAddPercentage: getSliderDynamicLossPercentage,
     getPinBoxDynamicLossPercentage,
     getHBottomDynamicLossPercentage,
+    getUTopDynamicLossPercentage,
     getRelevantPinBoxQuantity,
+    getRelevantHBottomQuantity,
     getRelevantMZ3Quantity,
     calculateVariantBaseChainMtr,
-    consolidateGroupClasses
+    consolidateGroupClasses,
+    getItemTypeGroupKey,
+    getGroupDisplayName,
+    getStandardStaticParameters,
+    getItemStaticParameters,
+    isStaticParametersModified
   };
 }
 
@@ -1634,10 +2230,17 @@ if (typeof module !== 'undefined' && module.exports) {
     getSliderDynamicAddPercentage: getSliderDynamicLossPercentage,
     getPinBoxDynamicLossPercentage,
     getHBottomDynamicLossPercentage,
+    getUTopDynamicLossPercentage,
     getRelevantPinBoxQuantity,
+    getRelevantHBottomQuantity,
     getRelevantMZ3Quantity,
     calculateVariantBaseChainMtr,
-    consolidateGroupClasses
+    consolidateGroupClasses,
+    getItemTypeGroupKey,
+    getGroupDisplayName,
+    getStandardStaticParameters,
+    getItemStaticParameters,
+    isStaticParametersModified
   };
 }
 

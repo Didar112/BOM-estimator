@@ -148,26 +148,28 @@ testEquals(getPinBoxDynamicLossPercentage(6000), 2.5, 'Pin Box 6,000 pcs -> 2.5%
 // =========================================================================
 // SECTION 4: PIN BOX RELEVANT ZIPPER QUANTITY SCOPE
 // =========================================================================
+// =========================================================================
+// SECTION 4: PIN BOX RELEVANT ZIPPER QUANTITY SCOPE (MZ OPEN-END EXCLUSIVE)
+// =========================================================================
 console.log('\n--- SECTION 4: Pin Box Relevant Zipper Quantity Scope ---');
 const mixedTypeVariants = [
   { id: 'v_open1', zipperType: 'open_end', quantity: 1500 },
   { id: 'v_open2', zipperType: 'two_way', quantity: 600 },
   { id: 'v_closed', zipperType: 'closed_end', quantity: 3000 }
 ];
-const relQty = getRelevantPinBoxQuantity(mixedTypeVariants);
-testEquals(relQty, 5100, 'Relevant zipper quantity counts all variants in group = 5100 pcs (1 Pin Box per zipper)');
+const relQty = getRelevantPinBoxQuantity(mixedTypeVariants, 'mz');
+testEquals(relQty, 2100, 'Relevant zipper quantity counts only open-end variants = 2100 pcs (1500 + 600)');
 
 const closedOnlyVariants = [
   { id: 'v_closed1', zipperSize: '#5', zipperType: 'closed_end', quantity: 1200 },
   { id: 'v_closed2', zipperSize: '#5', zipperType: 'closed_end', quantity: 800 }
 ];
-testEquals(getRelevantPinBoxQuantity(closedOnlyVariants), 2000, 'Relevant quantity for 2,000 pcs closed_end group is 2,000 pcs');
+testEquals(getRelevantPinBoxQuantity(closedOnlyVariants, 'mz'), 0, 'Relevant quantity for closed_end group is 0 pcs');
 
-// In calculateCZMaster, 2,000 pcs produces Pin Box row with 4% dynamic loss (2,080 pcs)
-const czClosedMaster = calculateCZMaster(closedOnlyVariants, { pinBoxPerZipper: 1 });
-const czClosedPinBox = czClosedMaster.materials.processedRows.find(r => r.key === 'mat_cz_pin_box');
-testAssert(czClosedPinBox !== undefined, 'Pin Box row generated for 2,000 pcs group');
-testEquals(czClosedPinBox.totalQuantity, 2080, '2,000 pcs group -> 2,080 Pin Box pcs');
+// In calculateMZMaster, closed-end variants produce NO Pin Box row
+const mzClosedMaster = calculateMZMaster(closedOnlyVariants, { pinBoxPerZipper: 1 });
+const mzClosedPinBox = mzClosedMaster.materials.processedRows.find(r => r.key === 'mat_mz_pin_box');
+testAssert(mzClosedPinBox === undefined, 'Pin Box row is NOT generated for MZ closed_end group');
 
 // =========================================================================
 // SECTION 5: PIN BOX MULTIPLIER & CALCULATION DETAILS (3-STEP BREAKDOWN)
@@ -177,10 +179,10 @@ const openEndVariants = [
   { id: 'v_oe', zipperSize: '#5', zipperType: 'open_end', length: 24, lengthUnit: 'inch', quantity: 1000 }
 ];
 
-// Test with default pinBoxPerZipper = 1
-const czOpenMaster1 = calculateCZMaster(openEndVariants, { pinBoxPerZipper: 1 });
-const pinBoxRow1 = czOpenMaster1.materials.processedRows.find(r => r.key === 'mat_cz_pin_box');
-testAssert(pinBoxRow1 !== undefined, 'Pin Box row generated for open_end variant');
+// Test with default pinBoxPerZipper = 1 on MZ open-end
+const mzOpenMaster1 = calculateMZMaster(openEndVariants, { pinBoxPerZipper: 1 });
+const pinBoxRow1 = mzOpenMaster1.materials.processedRows.find(r => r.key === 'mat_mz_pin_box');
+testAssert(pinBoxRow1 !== undefined, 'Pin Box row generated for MZ open_end variant');
 testEquals(pinBoxRow1.totalQuantity, 1000 * 1.04, '1,000 pcs (4% loss) -> 1,040 Pin Box pcs');
 testEquals(pinBoxRow1.unitPrice, 0, 'Pin Box unit price is 0 BDT (unpriced, no invented prices)');
 testEquals(pinBoxRow1.totalMaterialCost, 0, 'Pin Box total material cost is 0 BDT');
@@ -201,15 +203,26 @@ testAssert(pinBoxRow1.calculationDetail.steps[1].formula.includes('Base Pin Box:
 testAssert(pinBoxRow1.calculationDetail.steps[2].formula.includes('Base Pin Box: 1,000 Pcs + Loss Quantity: 40.00 Pcs = 1,040.00 Pcs'), 'Step 3 formula matches required Final formula');
 
 // Test with custom multiplier pinBoxPerZipper = 2
-const czOpenMaster2 = calculateCZMaster(openEndVariants, { pinBoxPerZipper: 2 });
-const pinBoxRow2 = czOpenMaster2.materials.processedRows.find(r => r.key === 'mat_cz_pin_box');
+const mzOpenMaster2 = calculateMZMaster(openEndVariants, { pinBoxPerZipper: 2 });
+const pinBoxRow2 = mzOpenMaster2.materials.processedRows.find(r => r.key === 'mat_mz_pin_box');
 testEquals(pinBoxRow2.totalQuantity, 1000 * 2 * 1.04, 'Pin Box multiplier = 2 -> Base 2,000 pcs + 4% loss = 2,080 Pcs');
 testEquals(pinBoxRow2.calculationDetail.baseQuantity, 2000, 'calculationDetail baseQuantity doubles to 2,000 Pcs');
 
 // =========================================================================
-// SECTION 6: PIN BOX ACROSS MZ AND PZ CATEGORIES
+// SECTION 6: PIN BOX EXCLUSIVITY (ONLY MZ OPEN-END; NOT CZ OR PZ)
 // =========================================================================
-console.log('\n--- SECTION 6: Pin Box in MZ and PZ Categories ---');
+console.log('\n--- SECTION 6: Pin Box Exclusivity to MZ Open-End ---');
+const czOpenMaster = calculateCZMaster(openEndVariants, { pinBoxPerZipper: 1 });
+const czPinBox = czOpenMaster.materials.processedRows.find(r => r.key === 'mat_cz_pin_box' || r.component === 'PIN BOX');
+testAssert(czPinBox === undefined, 'CZ does NOT have Pin Box in BoM table (even for open_end)');
+
+const pzOpenVariants = [
+  { id: 'v_pz_oe', zipperSize: '#5', zipperType: 'open_end', length: 18, lengthUnit: 'inch', quantity: 4000 }
+];
+const pzMaster = calculatePZMaster(pzOpenVariants, { pinBoxPerZipper: 1 });
+const pzPinBox = pzMaster.materials.processedRows.find(r => r.key === 'mat_pz_pin_box' || r.component === 'PIN BOX');
+testAssert(pzPinBox === undefined, 'PZ does NOT have Pin Box in BoM table (even for open_end)');
+
 const mzOpenVariants = [
   { id: 'v_mz_oe', zipperSize: '#5', zipperType: 'open_end', length: 20, lengthUnit: 'inch', quantity: 300 }
 ];
@@ -219,26 +232,17 @@ testAssert(mzPinBox !== undefined, 'MZ generates Pin Box row for open_end');
 testEquals(mzPinBox.totalQuantity, 300 * 1.08, '300 pcs (8% loss) -> 324 Pcs');
 testEquals(mzPinBox.unitPrice, 0, 'MZ Pin Box unit price is 0 BDT');
 
-const pzOpenVariants = [
-  { id: 'v_pz_oe', zipperSize: '#5', zipperType: 'open_end', length: 18, lengthUnit: 'inch', quantity: 4000 }
-];
-const pzMaster = calculatePZMaster(pzOpenVariants, { pinBoxPerZipper: 1 });
-const pzPinBox = pzMaster.materials.processedRows.find(r => r.key === 'mat_pz_pin_box');
-testAssert(pzPinBox !== undefined, 'PZ generates Pin Box row for open_end');
-testEquals(pzPinBox.totalQuantity, 4000 * 1.025, '4,000 pcs (2.5% loss) -> 4,100 Pcs');
-testEquals(pzPinBox.unitPrice, 0, 'PZ Pin Box unit price is 0 BDT');
-
 // =========================================================================
-// SECTION 7: SINGLE CONSOLIDATED PIN BOX (NOT SIZE-SPECIFIC)
+// SECTION 7: SINGLE CONSOLIDATED PIN BOX FOR MZ (NOT SIZE-SPECIFIC)
 // =========================================================================
 console.log('\n--- SECTION 7: Single Consolidated Pin Box (Not Size-Specific) ---');
 const mixedSizeOpenVariants = [
-  { id: 'v_cz5', zipperSize: '#5', zipperType: 'open_end', length: 20, lengthUnit: 'inch', quantity: 1000 },
-  { id: 'v_cz3', zipperSize: '#3', zipperType: 'open_end', length: 14, lengthUnit: 'inch', quantity: 1500 }
+  { id: 'v_mz5', zipperSize: '#5', zipperType: 'open_end', length: 20, lengthUnit: 'inch', quantity: 1000 },
+  { id: 'v_mz3', zipperSize: '#3', zipperType: 'open_end', length: 14, lengthUnit: 'inch', quantity: 1500 }
 ];
-const czMixedMaster = calculateCZMaster(mixedSizeOpenVariants, { pinBoxPerZipper: 1 });
-const pinBoxRows = czMixedMaster.materials.processedRows.filter(r => r.component === 'PIN BOX' || r.key.includes('pin_box'));
-testEquals(pinBoxRows.length, 1, 'Only 1 consolidated Pin Box line item generated for mixed #3 and #5 group');
+const mzMixedMaster = calculateMZMaster(mixedSizeOpenVariants, { pinBoxPerZipper: 1 });
+const pinBoxRows = mzMixedMaster.materials.processedRows.filter(r => r.component === 'PIN BOX' || r.key.includes('pin_box'));
+testEquals(pinBoxRows.length, 1, 'Only 1 consolidated Pin Box line item generated for mixed #3 and #5 MZ open-end group');
 testEquals(pinBoxRows[0].totalQuantity, (1000 + 1500) * 1.025, 'Total open quantity = 2500 pcs (2.5% loss) -> 2,562.5 Pcs');
 testAssert(!pinBoxRows[0].materialName.includes('#3') && !pinBoxRows[0].materialName.includes('#5'), 'Pin Box material name is not size-specific');
 
@@ -249,13 +253,21 @@ console.log('\n--- SECTION 8: Full Estimate End-to-End Integration ---');
 const fullEstimateInput = {
   categoryGroups: [
     {
-      id: 'g_cz',
-      name: 'Jacket Main Group',
-      category: 'cz',
+      id: 'g_mz',
+      name: 'MZ Open End Group',
+      category: 'mz',
       pinBoxPerZipper: 1,
       variants: [
         { id: 'v_j1', zipperSize: '#5', zipperType: 'open_end', length: 24, lengthUnit: 'inch', quantity: 1200 },
         { id: 'v_j2', zipperSize: '#5', zipperType: 'closed_end', length: 10, lengthUnit: 'inch', quantity: 800 }
+      ]
+    },
+    {
+      id: 'g_cz',
+      name: 'CZ Open End Group',
+      category: 'cz',
+      variants: [
+        { id: 'v_cz1', zipperSize: '#5', zipperType: 'open_end', length: 24, lengthUnit: 'inch', quantity: 1000 }
       ]
     }
   ]
@@ -266,18 +278,24 @@ const group1 = fullCalc.categoryGroups[0];
 testEquals(group1.sliderAdditionPercent, 4.0, 'Total group qty = 2,000 pcs -> Slider loss 4.0%');
 testEquals(group1.pinBoxPerZipper, 1, 'Group preserves pinBoxPerZipper = 1');
 
-const bomPinBox = group1.materials.processedRows.find(r => r.key === 'mat_cz_pin_box');
-testAssert(bomPinBox !== undefined, 'Merged/processed BOM rows contain mat_cz_pin_box');
-testEquals(bomPinBox.totalQuantity, 2000 * 1.04, 'Total group qty = 2,000 pcs (4% loss) -> 2,080 Pcs');
+// MZ group generates pin box only for the 1,200 open-end pcs (4% dynamic loss -> 1,248 pcs)
+const bomPinBox = group1.materials.processedRows.find(r => r.key === 'mat_mz_pin_box');
+testAssert(bomPinBox !== undefined, 'Merged/processed BOM rows contain mat_mz_pin_box for MZ open-end');
+testEquals(bomPinBox.totalQuantity, 1200 * 1.04, '1,200 open pcs (4% loss) -> 1,248 Pin Box Pcs');
+
+// CZ group does NOT generate pin box even for open-end
+const group2 = fullCalc.categoryGroups[1];
+const czBomPinBox = group2.materials.processedRows.find(r => r.component === 'PIN BOX' || (r.key && r.key.includes('pin_box')));
+testAssert(czBomPinBox === undefined, 'CZ group does NOT have Pin Box in BoM');
 
 // SECTION 8b: Pin Box Loss % Manual Override
 console.log('\n--- SECTION 8b: Pin Box Loss % Manual Override ---');
 const overriddenEstimateInput = {
   categoryGroups: [
     {
-      id: 'g_cz_ovr',
+      id: 'g_mz_ovr',
       name: 'Custom Pin Box Loss Group',
-      category: 'cz',
+      category: 'mz',
       pinBoxLossPercent: 6.0,
       isPinBoxLossOverridden: true,
       variants: [
@@ -289,7 +307,7 @@ const overriddenEstimateInput = {
 const ovrCalc = calculateFullEstimate(overriddenEstimateInput);
 const ovrGroup = ovrCalc.categoryGroups[0];
 testEquals(ovrGroup.pinBoxLossPercent, 6.0, 'Preserves overridden Pin Box loss of 6.0% (instead of default 4.0%)');
-const ovrBomPinBox = ovrGroup.materials.processedRows.find(r => r.key === 'mat_cz_pin_box');
+const ovrBomPinBox = ovrGroup.materials.processedRows.find(r => r.key === 'mat_mz_pin_box');
 testEquals(ovrBomPinBox.totalQuantity, 1000 * 1.06, 'Base 1,000 pcs + 6% overridden loss = 1,060 Pcs');
 testEquals(ovrBomPinBox.calculationDetail.lossPercent, 6.0, 'Calculation detail exposes overridden lossPercent = 6.0%');
 testEquals(ovrBomPinBox.calculationDetail.finalQuantity, 1060, 'Calculation detail exposes overridden finalQuantity = 1,060 Pcs');
@@ -319,13 +337,19 @@ testEquals(getDynamicLossPercentage('MZC#3', 500), 7.0, 'MZC#3 500 Mtr -> 7%');
 testEquals(getDynamicLossPercentage('MZC#3', 501), 3.0, 'MZC#3 501 Mtr -> 3%');
 testEquals(getDynamicLossPercentage('MZC#3', 1000), 3.0, 'MZC#3 1000 Mtr -> 3%');
 testEquals(getDynamicLossPercentage('MZC#3', 1001), 1.5, 'MZC#3 1001 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#3', 2000), 1.5, 'MZC#3 2000 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#3', 2001), 0.0, 'MZC#3 2001 Mtr -> 0% (beyond 2000 Mtr limit)');
 
 // 4. MZC#4 & MZC#5
 testEquals(getDynamicLossPercentage('MZC#4', 199), 8.0, 'MZC#4 199 Mtr -> 8%');
 testEquals(getDynamicLossPercentage('MZC#4', 200), 2.0, 'MZC#4 200 Mtr -> 2%');
 testEquals(getDynamicLossPercentage('MZC#4', 1001), 1.5, 'MZC#4 1001 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#4', 2000), 1.5, 'MZC#4 2000 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#4', 2001), 0.0, 'MZC#4 2001 Mtr -> 0% (beyond 2000 Mtr limit)');
 testEquals(getDynamicLossPercentage('MZC#5', 200), 2.0, 'MZC#5 200 Mtr -> 2%');
 testEquals(getDynamicLossPercentage('MZC#5', 1001), 1.5, 'MZC#5 1001 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#5', 2000), 1.5, 'MZC#5 2000 Mtr -> 1.5%');
+testEquals(getDynamicLossPercentage('MZC#5', 2001), 0.0, 'MZC#5 2001 Mtr -> 0% (beyond 2000 Mtr limit)');
 
 // 5. MZO#5
 testEquals(getDynamicLossPercentage('MZO#5', 199), 8.0, 'MZO#5 199 Mtr -> 8%');

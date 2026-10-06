@@ -176,11 +176,22 @@ assert('WIRE#5 Long HTML contains Wire Divisor with default 20.6', wire5LongHtml
 assert('WIRE#5 Long HTML does NOT contain Slider Add %', !wire5LongHtml.includes('Slider Add %'));
 assert('WIRE#5 Long HTML does NOT contain Pin Box Loss %', !wire5LongHtml.includes('Pin Box Loss %'));
 
-// Test 6: Verify Pin Box Loss % in CZ Group HTML
+// Test 6: Verify Pin Box Loss % is NOT in CZ HTML, but present in MZ Open-End HTML
 assert('CZ#3 HTML contains "Slider Add %"', cz3Html.includes('Slider Add %'));
-assert('CZ#3 HTML contains "Pin Box Loss %"', cz3Html.includes('Pin Box Loss %'));
+assert('CZ#3 HTML does NOT contain "Pin Box Loss %"', !cz3Html.includes('Pin Box Loss %'));
 assert('CZ#3 HTML does NOT contain "Pin Box / Zipper"', !cz3Html.includes('Pin Box / Zipper'));
-assert('CZ#3 HTML does NOT contain "Pcs" badge for Pin Box', !cz3Html.includes('category-control-pin-box') || !cz3Html.includes('>Pcs<'));
+assert('CZ#3 HTML does NOT contain "category-control-pin-box"', !cz3Html.includes('category-control-pin-box'));
+
+const mzOpenGroup = {
+  id: 'g_mz_oe',
+  name: 'MZ Open Group',
+  category: 'mz',
+  zipperSize: '#5',
+  zipperType: 'open_end',
+  variants: [{ id: 'v_mz_oe', zipperSize: '#5', zipperType: 'open_end', length: 24, quantity: 1000 }]
+};
+const mzOpenHtml = buildCategoryGroupHTML(mzOpenGroup, 0, 1);
+assert('MZ Open-End HTML DOES contain "Pin Box Loss %"', mzOpenHtml.includes('Pin Box Loss %'));
 
 console.log('\n====================================================');
 console.log(`DOM & UI TEST RESULTS: ${passed} / ${total} PASSED (100% SUCCESS)`);

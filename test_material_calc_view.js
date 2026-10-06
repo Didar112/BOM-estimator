@@ -33,7 +33,8 @@ const czResult = cz.calculateCZMaster([
 ], { lossPercent: 3.0 });
 
 const czRows = czResult.materials.processedRows;
-assert('CZ produced 8 factory BOM rows', czRows.length === 8);
+assert('CZ produced 8 factory BOM rows (Pin Box excluded, universal H-Bottom included for closed-end)', czRows.length === 8);
+assert('CZ does not contain Pin Box', !czRows.some(r => r.component === 'PIN BOX'));
 
 czRows.forEach(r => {
   assert(`Row "${r.materialName || r.component}" has calculationDetail`, r.calculationDetail && Array.isArray(r.calculationDetail.steps) && r.calculationDetail.steps.length > 0);

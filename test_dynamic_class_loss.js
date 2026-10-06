@@ -94,7 +94,7 @@ assertEquals(calc.getDynamicLossPercentage('CZO#5', 5001), 2.0, 'CZO#5 5001 MTR 
 
 // 3. Bracket Boundaries for MZ
 console.log('\n--- 3. Testing MZ Dynamic Loss Boundaries (Official Chart) ---');
-// MZC#3: 0-200: 8%, 200-500: 7%, 500-1000: 3%, 1000-2000: 1.5%
+// MZC#3: 0-200: 8%, 200-500: 7%, 500-1000: 3%, 1000-2000: 1.5%, >2000: 0%
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 100), 8.0, 'MZC#3 100 MTR -> 8%');
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 199), 8.0, 'MZC#3 199 MTR -> 8%');
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 200), 7.0, 'MZC#3 200 MTR -> 7%');
@@ -102,14 +102,22 @@ assertEquals(calc.getDynamicLossPercentage('MZC#3', 500), 7.0, 'MZC#3 500 MTR ->
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 501), 3.0, 'MZC#3 501 MTR -> 3%');
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 1000), 3.0, 'MZC#3 1000 MTR -> 3%');
 assertEquals(calc.getDynamicLossPercentage('MZC#3', 1001), 1.5, 'MZC#3 1001 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#3', 2000), 1.5, 'MZC#3 2000 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#3', 2001), 0.0, 'MZC#3 2001 MTR -> 0% (beyond 2000 MTR limit)');
+assertEquals(calc.getDynamicLossPercentage('MZC#3', 5000), 0.0, 'MZC#3 5000 MTR -> 0% (beyond 2000 MTR limit)');
 
-// MZC#4 & MZC#5: 0-200: 8%, 200-1000: 2%, 1000-2000: 1.5%
+// MZC#4 & MZC#5: 0-200: 8%, 200-1000: 2%, 1000-2000: 1.5%, >2000: 0%
 assertEquals(calc.getDynamicLossPercentage('MZC#4', 199), 8.0, 'MZC#4 199 MTR -> 8%');
 assertEquals(calc.getDynamicLossPercentage('MZC#4', 200), 2.0, 'MZC#4 200 MTR -> 2%');
 assertEquals(calc.getDynamicLossPercentage('MZC#4', 1000), 2.0, 'MZC#4 1000 MTR -> 2%');
 assertEquals(calc.getDynamicLossPercentage('MZC#4', 1001), 1.5, 'MZC#4 1001 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#4', 2000), 1.5, 'MZC#4 2000 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#4', 2001), 0.0, 'MZC#4 2001 MTR -> 0% (beyond 2000 MTR limit)');
 assertEquals(calc.getDynamicLossPercentage('MZC#5', 200), 2.0, 'MZC#5 200 MTR -> 2%');
 assertEquals(calc.getDynamicLossPercentage('MZC#5', 1001), 1.5, 'MZC#5 1001 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#5', 2000), 1.5, 'MZC#5 2000 MTR -> 1.5%');
+assertEquals(calc.getDynamicLossPercentage('MZC#5', 2001), 0.0, 'MZC#5 2001 MTR -> 0% (beyond 2000 MTR limit)');
+assertEquals(calc.getDynamicLossPercentage('MZC#5', 10000), 0.0, 'MZC#5 10000 MTR -> 0% (beyond 2000 MTR limit)');
 
 // MZO#5: 0-200: 8%, 200-500: 6%, 500-2000: 3%, 2000-5000: 1.5%, ABOVE 5000: 1%
 assertEquals(calc.getDynamicLossPercentage('MZO#5', 199), 8.0, 'MZO#5 199 MTR -> 8%');

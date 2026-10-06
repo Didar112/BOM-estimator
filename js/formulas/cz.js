@@ -22,7 +22,7 @@ const CZ_CONSTANTS = {
     bottomStopFactor: 0.03,    // EXACT: 0.03 factor
     bottomStopDivisor: 1000.0,
     resinDivisor: 1000.0,      // EXACT: 1000 divisor
-    hasUTop: false,            // CZ#3 does not use U-Top
+    hasUTop: true,             // CZ#3 has U-Top (2 pcs/zipper normal, 1 pc/zipper special)
     tollilon1Divisor: 14400.0, // EXACT: 14400
     tollilon1Multiplier: 100.0,
     tollilon2Divisor: 9500.0,  // EXACT: 9500
@@ -290,7 +290,12 @@ function calculateCZGroup(variants, czSize = '#3', globalLossPercent = 3.0, cust
 
   // 7. U-Top (only for CZ#5)
   // Normal order: 2 pcs per zipper. Special order: 1 pc per zipper.
-  const uTopQty = cfg.hasUTop ? (totalQuantity * uTopMultiplier) : 0;
+  const baseUTopQty = cfg.hasUTop ? (totalQuantity * uTopMultiplier) : 0;
+  const uTopLossPercent = (customParams && customParams.uTopLossPercent !== undefined && customParams.uTopLossPercent !== null)
+    ? Number(customParams.uTopLossPercent)
+    : 0;
+  const uTopLossQty = baseUTopQty * (uTopLossPercent / 100);
+  const uTopQty = baseUTopQty + uTopLossQty;
 
   // 8. Slider (+1.5% or Custom Addition)
   // Slider Quantity = Total Quantity + Slider Addition
@@ -398,6 +403,9 @@ function calculateCZGroup(variants, czSize = '#3', globalLossPercent = 3.0, cust
     totalTollilon,
     uTopQty,
     uTopPcs: uTopQty,
+    baseUTopQty,
+    uTopLossPercent,
+    uTopLossQty,
     uTopMultiplier,
     isSpecialUTopOrder,
     sliderQuantity,
@@ -747,22 +755,72 @@ function buildCZConsolidatedBOMRows(czCalcResult, existingCustomRows = [], price
     }
   });
 
-  // 7. U-TOP (only for CZ#5)
+  // 7. U-TOP (Universal for CZ)
   if (activeParams.hasUTop || czCalcResult.constants.hasUTop) {
-    const uTopQty = czCalcResult.uTopQty !== undefined ? czCalcResult.uTopQty : (czCalcResult.uTopPcs || 0);
     const uTopMultiplier = czCalcResult.uTopMultiplier !== undefined ? czCalcResult.uTopMultiplier : (czCalcResult.isSpecialUTopOrder ? 1 : 2);
     const isSpecial = Boolean(czCalcResult.isSpecialUTopOrder);
     const uTopPrice = getPrice(`uTop_${sizeNum}`, getPrice(`uTopKg_${sizeNum}`, getPrice('uTop', defaultPrices.uTop || defaultPrices.uTopKg || 350.00)));
     const orderQty = czCalcResult.totalQuantity || 0;
+    const baseUTopQty = czCalcResult.baseUTopQty !== undefined ? czCalcResult.baseUTopQty : (orderQty * uTopMultiplier);
+    const uTopLossPercent = czCalcResult.uTopLossPercent !== undefined ? czCalcResult.uTopLossPercent : 0;
+    const uTopLossQty = czCalcResult.uTopLossQty !== undefined ? czCalcResult.uTopLossQty : (baseUTopQty * (uTopLossPercent / 100));
+    const uTopQty = czCalcResult.uTopQty !== undefined ? czCalcResult.uTopQty : (baseUTopQty + uTopLossQty);
+
+    const specText = uTopLossPercent > 0
+      ? (isSpecial ? `U-Top Stop (Special Order: 1 pc/zipper, +${uTopLossPercent}% Loss)` : `U-Top Stop (2 pcs/zipper, +${uTopLossPercent}% Loss)`)
+      : (isSpecial ? 'U-Top Stop (Special Order: 1 pc/zipper)' : 'U-Top Stop (2 pcs/zipper)');
+
+    const steps = uTopLossPercent > 0 ? [
+      {
+        stepNumber: 1,
+        title: `Base U-Top Requirement`,
+        explanation: isSpecial ? `Special order requirement: 1 pc per zipper` : `Standard factory requirement: 2 pcs per zipper`,
+        formula: `Order Quantity: ${orderQty.toLocaleString('en-US')} pcs × ${uTopMultiplier} pc/zipper = ${baseUTopQty.toLocaleString('en-US')} pcs`,
+        result: `${baseUTopQty.toLocaleString('en-US')} Pcs`
+      },
+      {
+        stepNumber: 2,
+        title: `Dynamic U-Top Loss Quantity (+${uTopLossPercent}%)`,
+        explanation: `Loss rate applied to base U-Top quantity:`,
+        formula: `Base U-Top: ${baseUTopQty.toLocaleString('en-US')} pcs × Loss Rate: ${uTopLossPercent}% = ${uTopLossQty.toFixed(2)} pcs`,
+        result: `${uTopLossQty.toFixed(2)} Pcs`
+      },
+      {
+        stepNumber: 3,
+        title: `Total Required U-Top Quantity`,
+        explanation: `Sum of base requirement and loss quantity:`,
+        formula: `Base: ${baseUTopQty.toLocaleString('en-US')} pcs + Loss: ${uTopLossQty.toFixed(2)} pcs = ${uTopQty.toFixed(2)} pcs ≈ ${Math.round(uTopQty).toLocaleString('en-US')} Pcs`,
+        result: `${Math.round(uTopQty).toLocaleString('en-US')} Pcs`
+      }
+    ] : [
+      {
+        stepNumber: 1,
+        title: `CZ${sizeKey} Order Quantity`,
+        explanation: 'Sum of all variant quantities across this category group:',
+        formula: `Total Order Quantity = ${orderQty.toLocaleString('en-US')} pcs`,
+        result: `${orderQty.toLocaleString('en-US')} pcs`
+      },
+      {
+        stepNumber: 2,
+        title: isSpecial ? 'Special U-Top Requirement (1 pc per zipper)' : 'Required U-Top Quantity (2 pcs per zipper)',
+        explanation: isSpecial
+          ? `Customer requested special requirement of 1 U-Top per zipper.`
+          : `Standard factory requirement of 2 U-Tops per zipper.`,
+        formula: isSpecial
+          ? `Order Quantity: ${orderQty.toLocaleString('en-US')} pcs × 1 pc/zipper = ${uTopQty.toLocaleString('en-US')} pcs`
+          : `Order Quantity: ${orderQty.toLocaleString('en-US')} pcs × 2 pcs/zipper = ${uTopQty.toLocaleString('en-US')} pcs`,
+        result: `${uTopQty.toLocaleString('en-US')} Pcs`
+      }
+    ];
 
     rows.push({
-      id: `cz_bom_utop_5`,
-      key: `mat_cz_utop_5`,
+      id: `cz_bom_utop_${sizeNum}`,
+      key: `mat_cz_utop_${sizeNum}`,
       component: 'U-TOP',
       componentCategory: 'stop',
-      materialId: `mat_cz_utop_5`,
-      materialName: `U-Top (CZ#5)`,
-      specification: isSpecial ? 'U-Top Stop (Special Order: 1 pc/zipper)' : 'U-Top Stop (2 pcs/zipper)',
+      materialId: `mat_cz_utop_${sizeNum}`,
+      materialName: `U-Top (CZ${sizeKey})`,
+      specification: specText,
       unit: 'Pcs',
       totalQuantity: uTopQty,
       avgQtyPerZipper: totalQty > 0 ? (uTopQty / totalQty) : 0,
@@ -772,40 +830,24 @@ function buildCZConsolidatedBOMRows(czCalcResult, existingCustomRows = [], price
       isFactoryStandard: true,
       allowDelete: false,
       calculationDetail: {
-        materialName: `U-Top (CZ#5)`,
+        materialName: `U-Top (CZ${sizeKey})`,
         component: 'U-TOP',
         category: 'cz',
-        size: '#5',
+        size: sizeKey,
         unit: 'Pcs',
         displayUnit: 'Pcs',
         orderQuantity: orderQty,
         uTopPerZipper: uTopMultiplier,
         isSpecialOrder: isSpecial,
+        baseQuantity: baseUTopQty,
+        lossPercent: uTopLossPercent,
+        lossQuantity: uTopLossQty,
         finalQuantity: uTopQty,
-        displayQuantity: `${uTopQty.toLocaleString('en-US')} Pcs`,
+        displayQuantity: `${Math.round(uTopQty).toLocaleString('en-US')} Pcs`,
         baseFormula: isSpecial
-          ? `CZ#5 Order Quantity: ${orderQty.toLocaleString('en-US')} pcs\nSpecial U-Top Requirement: Yes\nU-Top per Zipper: 1 pc\nRequired U-Top Quantity: ${orderQty.toLocaleString('en-US')} × 1 = ${uTopQty.toLocaleString('en-US')} pcs`
-          : `CZ#5 Order Quantity: ${orderQty.toLocaleString('en-US')} pcs\nU-Top per Zipper: 2 pcs\nRequired U-Top Quantity: ${orderQty.toLocaleString('en-US')} × 2 = ${uTopQty.toLocaleString('en-US')} pcs`,
-        steps: [
-          {
-            stepNumber: 1,
-            title: 'CZ#5 Order Quantity',
-            explanation: 'Sum of all variant quantities across this category group:',
-            formula: `Total Order Quantity = ${orderQty.toLocaleString('en-US')} pcs`,
-            result: `${orderQty.toLocaleString('en-US')} pcs`
-          },
-          {
-            stepNumber: 2,
-            title: isSpecial ? 'Special U-Top Requirement (1 pc per zipper)' : 'Required U-Top Quantity (2 pcs per zipper)',
-            explanation: isSpecial
-              ? `Customer requested special requirement of 1 U-Top per zipper.`
-              : `Standard factory requirement of 2 U-Tops per zipper.`,
-            formula: isSpecial
-              ? `Order Quantity: ${orderQty.toLocaleString('en-US')} pcs × 1 pc/zipper = ${uTopQty.toLocaleString('en-US')} pcs`
-              : `Order Quantity: ${orderQty.toLocaleString('en-US')} pcs × 2 pcs/zipper = ${uTopQty.toLocaleString('en-US')} pcs`,
-            result: `${uTopQty.toLocaleString('en-US')} Pcs`
-          }
-        ]
+          ? `CZ${sizeKey} Order Quantity: ${orderQty.toLocaleString('en-US')} pcs\nSpecial U-Top Requirement: Yes\nU-Top per Zipper: 1 pc\nRequired U-Top Quantity: ${orderQty.toLocaleString('en-US')} × 1 = ${uTopQty.toLocaleString('en-US')} pcs`
+          : `CZ${sizeKey} Order Quantity: ${orderQty.toLocaleString('en-US')} pcs\nU-Top per Zipper: 2 pcs\nRequired U-Top Quantity: ${orderQty.toLocaleString('en-US')} × 2 = ${uTopQty.toLocaleString('en-US')} pcs`,
+        steps: steps
       }
     });
   }
@@ -938,6 +980,9 @@ function calculateCZMaster(variants, options = {}) {
       ? options.isSpecialUTopOrder 
       : (czParams && czParams.isSpecialUTopOrder)
   );
+  const uTopLossPercent = options.uTopLossPercent !== undefined && options.uTopLossPercent !== null
+    ? Number(options.uTopLossPercent)
+    : (czParams.uTopLossPercent !== undefined && czParams.uTopLossPercent !== null ? Number(czParams.uTopLossPercent) : null);
   const customRows = Array.isArray(options.customRows) ? options.customRows : [];
   const priceOverrides = options.priceOverrides || {};
 
@@ -993,6 +1038,7 @@ function calculateCZMaster(variants, options = {}) {
           if (calcEng && calcEng.getDynamicLossPercentage) {
             const sizeParams = resolveCZSizeParams(czParams, sizeKey, primarySize);
             sizeParams.isSpecialUTopOrder = isSpecialUTopOrder;
+            sizeParams.uTopLossPercent = uTopLossPercent;
             const baseMtr = groupVars.reduce((sum, v) => sum + calcEng.calculateVariantBaseChainMtr(v, 'cz', sizeParams), 0);
             const dynLoss = calcEng.getDynamicLossPercentage(classKey, baseMtr);
             if (dynLoss !== null && dynLoss !== undefined) {
@@ -1006,6 +1052,7 @@ function calculateCZMaster(variants, options = {}) {
 
       const sizeParams = resolveCZSizeParams(czParams, sizeKey, primarySize);
       sizeParams.isSpecialUTopOrder = isSpecialUTopOrder;
+      sizeParams.uTopLossPercent = uTopLossPercent;
       const res = calculateCZGroup(groupVars, sizeKey, groupLoss, sliderAdditionPercent, sizeParams);
       groupResults.push(res);
 
@@ -1021,6 +1068,7 @@ function calculateCZMaster(variants, options = {}) {
   if (groupResults.length === 0) {
     const sizeParams = resolveCZSizeParams(czParams, primarySize, primarySize);
     sizeParams.isSpecialUTopOrder = isSpecialUTopOrder;
+    sizeParams.uTopLossPercent = uTopLossPercent;
     const res = calculateCZGroup([], primarySize, lossPercent, sliderAdditionPercent, sizeParams);
     groupResults.push(res);
   }
@@ -1034,45 +1082,51 @@ function calculateCZMaster(variants, options = {}) {
     }
   });
 
-  // Category-level Pin Box requirement for open-end / two-way zippers
-  const pinBoxPerZipper = options.pinBoxPerZipper !== undefined ? Number(options.pinBoxPerZipper) : 1;
-  const relevantPinBoxQty = options.relevantPinBoxQuantity !== undefined 
-    ? Number(options.relevantPinBoxQuantity) 
-    : (calcEng && calcEng.getRelevantPinBoxQuantity ? calcEng.getRelevantPinBoxQuantity(variants) : 0);
+  // Universal H-Bottom calculation for Closed-End variants
+  const relevantHBottomQty = options.relevantHBottomQuantity !== undefined
+    ? Number(options.relevantHBottomQuantity)
+    : (calcEng && calcEng.getRelevantHBottomQuantity 
+        ? calcEng.getRelevantHBottomQuantity(variants, 'cz')
+        : (Array.isArray(variants) ? variants.reduce((sum, v) => {
+            const typeStr = String((v && (v.zipperType || v.endType || v.type)) || '').toLowerCase().trim();
+            const isOpen = (typeStr === 'open_end' || typeStr === 'open-end' || typeStr === 'open ended' || typeStr === 'two_way');
+            return sum + (!isOpen ? Math.max(0, Number(v.quantity) || 0) : 0);
+          }, 0) : 0));
 
-  if (relevantPinBoxQty > 0 && pinBoxPerZipper > 0) {
-    const basePinBox = relevantPinBoxQty * pinBoxPerZipper;
-    const pinBoxLossPercent = (options.pinBoxLossPercent !== undefined && options.pinBoxLossPercent !== null)
-      ? Number(options.pinBoxLossPercent)
-      : ((calcEng && calcEng.getPinBoxDynamicLossPercentage)
-        ? calcEng.getPinBoxDynamicLossPercentage(relevantPinBoxQty)
-        : (relevantPinBoxQty <= 500 ? 8.0 : (relevantPinBoxQty <= 2000 ? 4.0 : 2.5)));
-    const pinBoxLossQty = basePinBox * (pinBoxLossPercent / 100);
-    const finalPinBoxQty = basePinBox + pinBoxLossQty;
-    const getPrice = (key, defaultVal) => {
-      if (priceOverrides[key] !== undefined && priceOverrides[key] !== null && priceOverrides[key] !== '') {
-        return Number(priceOverrides[key]);
-      }
-      return defaultVal;
-    };
-    const pinBoxPrice = getPrice('pinBox', getPrice('pin_box', 0));
-    const pinBoxCost = finalPinBoxQty * pinBoxPrice;
+  let finalHBottomQty = 0;
+  if (relevantHBottomQty > 0) {
+    const baseHBottomQty = relevantHBottomQty * 1;
+    const hBottomLossPercent = (options.hBottomLossPercent !== undefined && options.hBottomLossPercent !== null)
+      ? Number(options.hBottomLossPercent)
+      : ((calcEng && calcEng.getHBottomDynamicLossPercentage)
+        ? calcEng.getHBottomDynamicLossPercentage(totalVariantQty || relevantHBottomQty)
+        : ((totalVariantQty || relevantHBottomQty) <= 500 ? 8.0 : ((totalVariantQty || relevantHBottomQty) <= 2000 ? 4.0 : 2.5)));
+    const hBottomLossQty = baseHBottomQty * (hBottomLossPercent / 100);
+    finalHBottomQty = baseHBottomQty + hBottomLossQty;
+    const hBottomPrice = (priceOverrides['hBottom'] !== undefined && priceOverrides['hBottom'] !== '')
+      ? Number(priceOverrides['hBottom'])
+      : ((priceOverrides['h_bottom'] !== undefined && priceOverrides['h_bottom'] !== '')
+        ? Number(priceOverrides['h_bottom'])
+        : ((priceOverrides['cz_h_bottom'] !== undefined && priceOverrides['cz_h_bottom'] !== '')
+          ? Number(priceOverrides['cz_h_bottom'])
+          : 0.65));
+    const hBottomCost = finalHBottomQty * hBottomPrice;
 
     allBOMRows.push({
-      id: 'cz_bom_pin_box',
-      key: 'mat_cz_pin_box',
-      component: 'PIN BOX',
+      id: 'cz_bom_h_bottom',
+      key: `mat_cz_h_bottom_${primarySize.replace('#', '')}`,
+      component: 'H-BOTTOM',
       componentCategory: 'stop',
-      materialId: 'mat_cz_pin_box',
-      materialName: 'Pin Box',
-      specification: `Pin Box (${pinBoxPerZipper}/zipper, Loss ${pinBoxLossPercent}%)`,
+      materialId: `mat_cz_h_bottom_${primarySize.replace('#', '')}`,
+      materialName: `H-Bottom Stop (CZ${primarySize})`,
+      specification: `Addition: +${hBottomLossPercent}%`,
       unit: 'Pcs',
-      totalQuantity: finalPinBoxQty,
-      avgQtyPerZipper: masterTotalQty > 0 ? (finalPinBoxQty / masterTotalQty) : 0,
-      unitPrice: pinBoxPrice,
-      baseMaterialCost: pinBoxCost,
+      totalQuantity: finalHBottomQty,
+      avgQtyPerZipper: masterTotalQty > 0 ? (finalHBottomQty / masterTotalQty) : 0,
+      unitPrice: hBottomPrice,
+      baseMaterialCost: hBottomCost,
       wastageCost: 0,
-      totalMaterialCost: pinBoxCost,
+      totalMaterialCost: hBottomCost,
       wastagePercent: 0,
       isLengthDependent: false,
       isFactoryStandard: true,
@@ -1081,45 +1135,46 @@ function calculateCZMaster(variants, options = {}) {
       subtypeName: `CZ${primarySize}`,
       subtypeLabel: `CZ ${primarySize}`,
       calculationDetail: {
-        materialName: 'Pin Box',
-        component: 'PIN BOX',
+        materialName: `H-Bottom Stop (CZ${primarySize})`,
+        component: 'H-BOTTOM',
         category: 'cz',
         size: primarySize,
         unit: 'Pcs',
-        relevantZipperQuantity: relevantPinBoxQty,
-        pinBoxPerZipper: pinBoxPerZipper,
-        baseQuantity: basePinBox,
-        lossPercent: pinBoxLossPercent,
-        lossQuantity: pinBoxLossQty,
-        finalQuantity: finalPinBoxQty,
-        displayQuantity: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
-        baseFormula: `Final Pin Box (Pcs) = Base Pin Box × (1 + Loss %)\n                   = (Relevant Zipper Quantity × Pin Box / Zipper) × (1 + ${pinBoxLossPercent}% Loss)`,
+        zipperQuantity: relevantHBottomQty,
+        baseQuantity: baseHBottomQty,
+        lossPercent: hBottomLossPercent,
+        lossQuantity: hBottomLossQty,
+        finalQuantity: finalHBottomQty,
+        displayQuantity: `${Math.round(finalHBottomQty).toLocaleString('en-US')} Pcs`,
+        baseFormula: `Base H-Bottom Quantity = Closed-End Zipper Quantity × 1\nLoss Quantity = Base H-Bottom Quantity × ${hBottomLossPercent}%\nFinal H-Bottom Quantity = Base H-Bottom Quantity + Loss Quantity\n                        = Base H-Bottom Quantity × (1 + ${hBottomLossPercent}%)`,
         steps: [
           {
             stepNumber: 1,
-            title: 'Relevant Zipper Quantity & Base Pin Box',
-            explanation: 'Base Pin Box is derived from Relevant Zipper Quantity (Open-End & Two-Way zippers) multiplied by Pin Box per Zipper:',
-            formula: `Relevant Zipper Quantity: ${relevantPinBoxQty.toLocaleString('en-US')} pcs × Pin Box / Zipper: ${pinBoxPerZipper} = Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs`,
-            result: `${basePinBox.toLocaleString('en-US')} Pcs`
+            title: 'Closed-End Zipper Quantity & Base H-Bottom',
+            explanation: 'Base H-Bottom quantity is derived from closed-end zipper quantity multiplied by 1:',
+            formula: `Closed-End Zipper Quantity: ${relevantHBottomQty.toLocaleString('en-US')} pcs\nBase H-Bottom: ${relevantHBottomQty.toLocaleString('en-US')} × 1 = ${baseHBottomQty.toLocaleString('en-US')} Pcs`,
+            result: `${baseHBottomQty.toLocaleString('en-US')} Pcs`
           },
           {
             stepNumber: 2,
-            title: `Applied Factory Loss (+${pinBoxLossPercent}%)`,
-            explanation: `Factory loss rate of ${pinBoxLossPercent}% applied based on relevant order volume (${relevantPinBoxQty.toLocaleString('en-US')} pcs):`,
-            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs × Loss Rate: ${pinBoxLossPercent}% = Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
-            result: `${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+            title: `Dynamic H-Bottom Loss (+${hBottomLossPercent}%)`,
+            explanation: `Loss rate applied dynamically based on closed-end order volume (${relevantHBottomQty.toLocaleString('en-US')} pcs):`,
+            formula: `Base H-Bottom: ${baseHBottomQty.toLocaleString('en-US')} Pcs × Loss Rate: ${hBottomLossPercent}% = Loss Quantity: ${hBottomLossQty.toFixed(2)} Pcs`,
+            result: `${hBottomLossQty.toFixed(2)} Pcs`
           },
           {
             stepNumber: 3,
-            title: 'Final Pin Box Requirement (Pcs)',
-            explanation: 'Final Pin Box quantity equals Base Pin Box plus Loss Quantity:',
-            formula: `Base Pin Box: ${basePinBox.toLocaleString('en-US')} Pcs + Loss Quantity: ${pinBoxLossQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs = ${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`,
-            result: `${finalPinBoxQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Pcs`
+            title: 'Final H-Bottom Quantity (Pcs)',
+            explanation: 'Final H-Bottom quantity equals Base H-Bottom quantity plus Loss Quantity:',
+            formula: `Final H-Bottom: ${baseHBottomQty.toLocaleString('en-US')} + ${hBottomLossQty.toFixed(2)} = ${finalHBottomQty.toFixed(2)} Pcs\nBOM Rounded Requirement: ${Math.round(finalHBottomQty).toLocaleString('en-US')} Pcs`,
+            result: `${Math.round(finalHBottomQty).toLocaleString('en-US')} Pcs`
           }
         ]
       }
     });
   }
+
+  // Note: Pin Box is exclusive to Metal Zipper (MZ) Open-End; not applicable to Nylon Zipper (CZ)
 
   // Include user custom rows if any
   if (Array.isArray(customRows)) {
@@ -1164,6 +1219,7 @@ function calculateCZMaster(variants, options = {}) {
     lossMtr: masterLossMtr,
     lossInclusiveChainMtr: masterLossInclusiveChainMtr,
     totalTapeKg: masterTotalTapeKg,
+    hBottomPcs: finalHBottomQty,
     lossPercent,
     groupResults,
     primaryResult,
@@ -1265,18 +1321,18 @@ function buildCZFormulaSteps(groupResults, lossPercent) {
       result: `${Math.round(res.totalTollilon)} Units`
     });
 
-    // STEP 9 — U-TOP (If CZ#5)
+    // STEP 9 — U-TOP (Universal for CZ)
     if (cfg.hasUTop && (res.uTopQty > 0 || res.uTopPcs > 0 || res.totalQuantity > 0)) {
       const uTopFinal = res.uTopQty !== undefined ? res.uTopQty : (res.uTopPcs || 0);
       const isSpec = Boolean(res.isSpecialUTopOrder);
       steps.push({
-        title: `Step 9 — U-Top (CZ#5)`,
+        title: `Step 9 — U-Top (CZ${size})`,
         explanation: isSpec
           ? `Special order requirement: 1 U-Top per zipper.`
           : `Standard order requirement: 2 U-Tops per zipper.`,
         formula: isSpec
-          ? `CZ#5 Order Quantity: ${res.totalQuantity.toLocaleString('en-US')} pcs × 1 pc/zipper = ${uTopFinal.toLocaleString('en-US')} pcs`
-          : `CZ#5 Order Quantity: ${res.totalQuantity.toLocaleString('en-US')} pcs × 2 pcs/zipper = ${uTopFinal.toLocaleString('en-US')} pcs`,
+          ? `CZ${size} Order Quantity: ${res.totalQuantity.toLocaleString('en-US')} pcs × 1 pc/zipper = ${uTopFinal.toLocaleString('en-US')} pcs`
+          : `CZ${size} Order Quantity: ${res.totalQuantity.toLocaleString('en-US')} pcs × 2 pcs/zipper = ${uTopFinal.toLocaleString('en-US')} pcs`,
         result: `${uTopFinal.toLocaleString('en-US')} Pcs`
       });
     }

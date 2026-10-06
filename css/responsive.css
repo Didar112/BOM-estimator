@@ -5,8 +5,8 @@
 /* --- Large Desktops & Tablets (Max 1180px) --- */
 @media (max-width: 1180px) {
   .main-layout-grid {
-    grid-template-columns: minmax(0, 62%) minmax(300px, 38%);
-    gap: 18px;
+    grid-template-columns: minmax(0, 46%) minmax(0, 54%);
+    gap: 16px;
   }
 }
 
@@ -103,34 +103,44 @@
   }
 
   .category-dynamic-params-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
   .category-dynamic-param-utop-card {
-    grid-column: span 3;
+    grid-column: 1 / -1;
   }
 
   @media (max-width: 640px) {
     .category-controls-grid {
-      flex-direction: column;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
     }
-    .category-control-item,
-    .category-control-main,
+    .category-control-main {
+      grid-column: 1 / -1;
+    }
     .category-control-loss,
-    .category-control-slider {
-      width: 100%;
-      flex: 1 1 100%;
+    .category-control-slider,
+    .category-control-pin-box {
+      grid-column: span 1;
     }
     .category-dynamic-params-grid {
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
     .category-dynamic-param-utop-card {
-      grid-column: span 2;
+      grid-column: 1 / -1;
     }
   }
 
-  @media (max-width: 420px) {
+  @media (max-width: 480px) {
+    .category-controls-grid {
+      grid-template-columns: 1fr;
+    }
+    .category-control-loss,
+    .category-control-slider,
+    .category-control-pin-box {
+      grid-column: span 1;
+    }
     .category-dynamic-params-grid {
       grid-template-columns: 1fr;
     }

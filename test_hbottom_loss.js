@@ -228,25 +228,52 @@ assert(cz5Res.uTopQty === 2000 * 2, 'CZ#5 U-Top = 2000 * 2 = 4000 Pcs');
 const cz3Res = czEngine.calculateCZGroup([
   { id: 'cz3_1', zipperSize: '#3', length: 10, lengthUnit: 'inch', quantity: 2000 }
 ], '#3', 3.0);
-assert(cz3Res.uTopQty === undefined || cz3Res.uTopQty === 0, 'CZ#3 has NO U-Top');
+assert(cz3Res.uTopQty === 2000 * 2, 'CZ#3 has U-Top = 2000 * 2 = 4000 Pcs');
 
 // ----------------------------------------------------
-// 8. REGRESSION CHECK: H-BOTTOM EXCLUSIVITY (ONLY MZ#3)
+// 8. UNIVERSAL H-BOTTOM BEHAVIOR: CLOSED-END vs OPEN-END
 // ----------------------------------------------------
-console.log('\n--- 8. Regression Check: H-Bottom Exclusivity to MZ#3 ---');
+console.log('\n--- 8. Universal H-Bottom Behavior Across Categories ---');
+// Closed-End MZ#5 -> Has H-Bottom AND Wire for B/S
 const mz5Res = mzEngine.calculateMZMaster([
-  { id: 'mz5_1', zipperSize: '#5', length: 12, lengthUnit: 'inch', quantity: 2000 }
+  { id: 'mz5_1', zipperSize: '#5', zipperType: 'closed_end', length: 12, lengthUnit: 'inch', quantity: 2000 }
 ]);
 const mz5HBottom = mz5Res.materials.processedRows.find(r => r.component === 'H-BOTTOM');
-assert(mz5HBottom === undefined, 'MZ#5 has NO H-Bottom');
+assert(mz5HBottom !== undefined, 'Closed-End MZ#5 HAS H-Bottom');
 const mz5WireBS = mz5Res.materials.processedRows.find(r => r.component === 'Wire for B/S# 4&5');
 assert(mz5WireBS !== undefined, 'MZ#5 uses Wire for B/S# 4&5');
 
-const pzRes = pzEngine.calculatePZMaster([
-  { id: 'pz_1', zipperSize: '#3', length: 10, lengthUnit: 'inch', quantity: 2000 }
+// Open-End MZ#3 -> No H-Bottom even in MZ#3
+const mz3OpenRes = mzEngine.calculateMZMaster([
+  { id: 'mz3_open_1', zipperSize: '#3', zipperType: 'open_end', length: 10, lengthUnit: 'inch', quantity: 1000 }
 ]);
-assert(pzRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') === undefined, 'PZ has NO H-Bottom');
+assert(mz3OpenRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') === undefined, 'Open-End MZ#3 has NO H-Bottom');
 
+// Closed-End CZ#5 -> Has H-Bottom
+const czRes = czEngine.calculateCZMaster([
+  { id: 'cz_1', zipperSize: '#5', zipperType: 'closed_end', length: 10, lengthUnit: 'inch', quantity: 2000 }
+]);
+assert(czRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') !== undefined, 'Closed-End CZ has H-Bottom');
+
+// Open-End CZ#5 -> No H-Bottom
+const czOpenRes = czEngine.calculateCZMaster([
+  { id: 'cz_open_1', zipperSize: '#5', zipperType: 'open_end', length: 10, lengthUnit: 'inch', quantity: 2000 }
+]);
+assert(czOpenRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') === undefined, 'Open-End CZ has NO H-Bottom');
+
+// Closed-End PZ#3 -> Has H-Bottom
+const pzRes = pzEngine.calculatePZMaster([
+  { id: 'pz_1', zipperSize: '#3', zipperType: 'closed_end', length: 10, lengthUnit: 'inch', quantity: 2000 }
+]);
+assert(pzRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') !== undefined, 'Closed-End PZ has H-Bottom');
+
+// Open-End PZ#3 -> No H-Bottom
+const pzOpenRes = pzEngine.calculatePZMaster([
+  { id: 'pz_open_1', zipperSize: '#3', zipperType: 'open_end', length: 10, lengthUnit: 'inch', quantity: 2000 }
+]);
+assert(pzOpenRes.materials.processedRows.find(r => r.component === 'H-BOTTOM') === undefined, 'Open-End PZ has NO H-Bottom');
+
+// WIRE -> No H-Bottom
 const wireRes = wireEngine.calculateWireMaster([
   { id: 'wire_1', zipperSize: '#3', length: 10, lengthUnit: 'inch', quantity: 2000 }
 ]);
@@ -265,9 +292,9 @@ assert(getPinBoxDynamicLossPercentage(1000) === 4.0, 'Pin Box dynamic loss 1000 
 assert(getPinBoxDynamicLossPercentage(3000) === 2.5, 'Pin Box dynamic loss 3000 pcs = 2.5%');
 
 // ----------------------------------------------------
-// 10. UI & DOM INACTIVE BEHAVIOR FOR MZ#5 vs MZ#3
+// 10. UI & DOM BEHAVIOR FOR CLOSED-END vs OPEN-END
 // ----------------------------------------------------
-console.log('\n--- 10. Testing UI & DOM Inactive Behavior for MZ#5 vs MZ#3 ---');
+console.log('\n--- 10. Testing UI & DOM Behavior for Closed-End vs Open-End ---');
 const fs = require('fs');
 const path = require('path');
 const appJsSource = fs.readFileSync(path.join(__dirname, 'js', 'app.js'), 'utf8');
@@ -284,6 +311,13 @@ global.window.CalculatorEngine = {
   getPinBoxDynamicLossPercentage,
   getHBottomDynamicLossPercentage,
   getRelevantPinBoxQuantity: () => 0,
+  getRelevantHBottomQuantity: (vars) => {
+    return (vars || []).reduce((sum, v) => {
+      const typeStr = String((v && (v.zipperType || v.endType || v.type)) || '').toLowerCase().trim();
+      const isOpen = (typeStr === 'open_end' || typeStr === 'open-end' || typeStr === 'open ended' || typeStr === 'two_way');
+      return sum + (!isOpen ? Math.max(0, Number(v.quantity) || 0) : 0);
+    }, 0);
+  },
   getRelevantMZ3Quantity
 };
 
@@ -294,59 +328,71 @@ const funcExtractor = new Function('escapeHtml', `
 const mockEscape = (s) => String(s || '');
 const { buildCategoryGroupHTML } = funcExtractor(mockEscape);
 
-// Case A: Group with MZ#5 variant
-const mz5Group = {
-  id: 'grp_mz5_test',
-  name: 'MZ#5 Category Group',
+// Case A: Group with Open-End variant (H-Bottom should be inactive)
+const openEndGroup = {
+  id: 'grp_open_test',
+  name: 'MZ Open-End Group',
   category: 'mz',
   lossPercent: 3.0,
   variants: [
-    { id: 'v_mz5', zipperSize: '#5', length: 12, lengthUnit: 'inch', quantity: 2000 }
+    { id: 'v_open', zipperSize: '#5', zipperType: 'open_end', length: 12, lengthUnit: 'inch', quantity: 2000 }
   ]
 };
-const mz5Html = buildCategoryGroupHTML(mz5Group, 0, 1);
+const openHtml = buildCategoryGroupHTML(openEndGroup, 0, 1);
 
-assert(mz5Html.includes('id="mz-hbottom-loss-grp_mz5_test"'), 'MZ#5 renders mz-hbottom-loss input element');
-assert(mz5Html.includes('disabled'), 'MZ#5 H-Bottom input has "disabled" attribute');
-assert(mz5Html.includes('param-inactive'), 'MZ#5 H-Bottom container has "param-inactive" CSS class');
-assert(mz5Html.includes('value=""'), 'MZ#5 H-Bottom input has empty value');
-assert(mz5Html.includes('placeholder="—"'), 'MZ#5 H-Bottom input has "—" placeholder');
-assert(mz5Html.includes('(MZ#3 only)'), 'MZ#5 H-Bottom label includes "(MZ#3 only)" clarification');
-assert(mz5Html.includes('inactive for MZ#5'), 'MZ#5 tooltip/title states inactive for MZ#5');
+assert(openHtml.includes('id="mz-hbottom-loss-grp_open_test"'), 'Open-End renders mz-hbottom-loss input element');
+assert(openHtml.includes('disabled'), 'Open-End H-Bottom input has "disabled" attribute');
+assert(openHtml.includes('param-inactive'), 'Open-End H-Bottom container has "param-inactive" CSS class');
+assert(openHtml.includes('value=""'), 'Open-End H-Bottom input has empty value');
+assert(openHtml.includes('placeholder="—"'), 'Open-End H-Bottom input has "—" placeholder');
+assert(openHtml.includes('(Closed-End only)'), 'Open-End H-Bottom label includes "(Closed-End only)" clarification');
+assert(openHtml.includes('inactive for Open-End'), 'Open-End tooltip/title states inactive for Open-End');
 
-// Case B: Group with MZ#3 variant
-const mz3Group = {
-  id: 'grp_mz3_test',
-  name: 'MZ#3 Category Group',
+// Case B: Group with Closed-End variant (H-Bottom should be active)
+const closedEndGroup = {
+  id: 'grp_closed_test',
+  name: 'MZ Closed-End Group',
   category: 'mz',
   lossPercent: 3.0,
   variants: [
-    { id: 'v_mz3', zipperSize: '#3', length: 10, lengthUnit: 'inch', quantity: 1000 }
+    { id: 'v_closed', zipperSize: '#5', zipperType: 'closed_end', length: 10, lengthUnit: 'inch', quantity: 1000 }
   ]
 };
-const mz3Html = buildCategoryGroupHTML(mz3Group, 0, 1);
+const closedHtml = buildCategoryGroupHTML(closedEndGroup, 0, 1);
 
-assert(mz3Html.includes('id="mz-hbottom-loss-grp_mz3_test"'), 'MZ#3 renders mz-hbottom-loss input element');
-assert(!mz3Html.includes('id="mz-hbottom-loss-grp_mz3_test" disabled') && !mz3Html.includes('disabled\n                         title="H-Bottom Stop Loss Addition Percentage for MZ#3"'), 'MZ#3 H-Bottom input is NOT disabled');
-assert(!mz3Html.includes('param-inactive'), 'MZ#3 H-Bottom container does NOT have "param-inactive" class');
-assert(mz3Html.includes('value="4"'), 'MZ#3 H-Bottom input has active dynamic value (4% for 1,000 pcs)');
-assert(mz3Html.includes('placeholder="0"'), 'MZ#3 H-Bottom input has active placeholder="0"');
+assert(closedHtml.includes('id="mz-hbottom-loss-grp_closed_test"'), 'Closed-End renders mz-hbottom-loss input element');
+assert(!closedHtml.includes('id="mz-hbottom-loss-grp_closed_test" disabled') && !closedHtml.includes('disabled\n                         title="H-Bottom Stop Loss Addition Percentage for MZ"'), 'Closed-End H-Bottom input is NOT disabled');
+assert(!closedHtml.includes('param-inactive'), 'Closed-End H-Bottom container does NOT have "param-inactive" class');
+assert(closedHtml.includes('value="4"'), 'Closed-End H-Bottom input has active dynamic value (4% for 1,000 pcs)');
+assert(closedHtml.includes('placeholder="0"'), 'Closed-End H-Bottom input has active placeholder="0"');
 
-// Case C: Group with Mixed variants (#5 and #3)
-const mixedMzGroup = {
-  id: 'grp_mz_mixed_test',
-  name: 'MZ Mixed Group',
-  category: 'mz',
+// Case C: CZ Group with Closed-End variant (H-Bottom active in CZ grid)
+const czGroup = {
+  id: 'grp_cz_test',
+  name: 'CZ Closed-End Group',
+  category: 'cz',
   lossPercent: 3.0,
   variants: [
-    { id: 'v_mix1', zipperSize: '#5', length: 12, lengthUnit: 'inch', quantity: 2000 },
-    { id: 'v_mix2', zipperSize: '#3', length: 8, lengthUnit: 'inch', quantity: 300 }
+    { id: 'v_cz', zipperSize: '#5', zipperType: 'closed_end', length: 12, lengthUnit: 'inch', quantity: 500 }
   ]
 };
-const mixedHtml = buildCategoryGroupHTML(mixedMzGroup, 0, 1);
+const czHtml = buildCategoryGroupHTML(czGroup, 0, 1);
+assert(czHtml.includes('id="cz-hbottom-loss-grp_cz_test"'), 'CZ renders cz-hbottom-loss input element');
+assert(czHtml.includes('value="8"'), 'CZ closed-end applies dynamic loss (8% for 500 pcs)');
 
-assert(!mixedHtml.includes('param-inactive'), 'Mixed MZ group with #3 variant remains active');
-assert(mixedHtml.includes('value="8"'), 'Mixed MZ group applies dynamic loss for #3 variant (8% for 300 pcs)');
+// Case D: PZ Group with Closed-End variant (H-Bottom active in PZ grid)
+const pzGroup = {
+  id: 'grp_pz_test',
+  name: 'PZ Closed-End Group',
+  category: 'pz',
+  lossPercent: 3.0,
+  variants: [
+    { id: 'v_pz', zipperSize: '#3', zipperType: 'closed_end', length: 12, lengthUnit: 'inch', quantity: 3000 }
+  ]
+};
+const pzHtml = buildCategoryGroupHTML(pzGroup, 0, 1);
+assert(pzHtml.includes('id="pz-hbottom-loss-grp_pz_test"'), 'PZ renders pz-hbottom-loss input element');
+assert(pzHtml.includes('value="2.5"'), 'PZ closed-end applies dynamic loss (2.5% for 3000 pcs)');
 
 console.log('\n====================================================');
 console.log(`H-BOTTOM TEST RESULTS: ${passedTests} / ${totalTests} PASSED (100% SUCCESS)`);

@@ -29,6 +29,7 @@ require('./js/unitConversion.js');
 const czEngine = require('./js/formulas/cz.js');
 const mzEngine = require('./js/formulas/mz.js');
 const wireEngine = require('./js/formulas/wire.js');
+const pzEngine = require('./js/formulas/pz.js');
 const materials = require('./js/materials.js');
 const bomRules = require('./js/bomRules.js');
 const calculations = require('./js/calculations.js');
@@ -123,7 +124,7 @@ assertEquals(testZeroRes.uTopQty, 0, 'Edge Case: CZ#5 Qty=0 -> 0 pcs U-Top');
 // ----------------------------------------------------
 // SECTION 2: EXCLUSIVITY TO CZ#5
 // ----------------------------------------------------
-console.log('\n--- SECTION 2: Exclusivity to CZ#5 ---');
+console.log('\n--- SECTION 2: Universal Applicability to All Zipper Categories ---');
 
 // CZ#3
 const cz3Res = czEngine.calculateCZGroup(
@@ -131,9 +132,9 @@ const cz3Res = czEngine.calculateCZGroup(
   '#3',
   3.0
 );
-assertEquals(cz3Res.uTopQty, 0, 'CZ#3 has 0 U-Top');
+assertEquals(cz3Res.uTopQty, 2000, 'CZ#3 has 2000 U-Top (2 pcs/zipper)');
 const cz3BOM = czEngine.buildCZConsolidatedBOMRows(cz3Res);
-assert(!cz3BOM.some(r => r.component === 'U-TOP' || (r.materialName && r.materialName.toLowerCase().includes('u-top'))), 'CZ#3 BOM does NOT contain U-Top');
+assert(cz3BOM.some(r => r.component === 'U-TOP' && r.materialName === 'U-Top (CZ#3)'), 'CZ#3 BOM contains U-Top (CZ#3)');
 
 // MZ#3
 const mz3Res = mzEngine.calculateMZGroup(
@@ -141,15 +142,19 @@ const mz3Res = mzEngine.calculateMZGroup(
   '#3',
   3.0
 );
-assert(!mz3Res.uTopQty, 'MZ#3 has NO uTopQty');
+assertEquals(mz3Res.uTopQty, 2000, 'MZ#3 has 2000 uTopQty (2 pcs/zipper)');
 const mz3Master = mzEngine.calculateMZMaster([{ id: 'v1', zipperSize: '#3', length: 10, lengthUnit: 'inch', quantity: 1000 }]);
-assert(!mz3Master.materials.processedRows.some(r => r.component === 'U-TOP' || (r.materialName && r.materialName.toLowerCase().includes('u-top'))), 'MZ#3 BOM does NOT contain U-Top');
+assert(mz3Master.materials.processedRows.some(r => r.component === 'U-TOP' && r.materialName.includes('U-Top')), 'MZ#3 BOM contains U-Top');
 
 // MZ#5
 const mz5Master = mzEngine.calculateMZMaster([{ id: 'v1', zipperSize: '#5', length: 10, lengthUnit: 'inch', quantity: 1000 }]);
-assert(!mz5Master.materials.processedRows.some(r => r.component === 'U-TOP' || (r.materialName && r.materialName.toLowerCase().includes('u-top'))), 'MZ#5 BOM does NOT contain U-Top');
+assert(mz5Master.materials.processedRows.some(r => r.component === 'U-TOP' && r.materialName.includes('U-Top')), 'MZ#5 BOM contains U-Top');
 
-// WIRE
+// PZ#5
+const pz5Master = pzEngine.calculatePZMaster([{ id: 'v1', zipperSize: '#5', length: 10, lengthUnit: 'inch', quantity: 1000 }]);
+assert(pz5Master.materials.processedRows.some(r => r.component === 'U-TOP' && r.materialName.includes('U-Top')), 'PZ#5 BOM contains U-Top');
+
+// WIRE (non-zipper category) does NOT contain U-Top
 const wireMaster = wireEngine.calculateWireMaster([{ id: 'v1', zipperSize: '#5_normal', length: 10, lengthUnit: 'inch', quantity: 1000 }]);
 assert(!wireMaster.materials.processedRows.some(r => r.component === 'U-TOP' || (r.materialName && r.materialName.toLowerCase().includes('u-top'))), 'WIRE BOM does NOT contain U-Top');
 
@@ -249,22 +254,22 @@ const estimate = {
 const fullEstResult = calculations.calculateFullEstimate(estimate);
 assert(fullEstResult !== null, 'calculateFullEstimate succeeded');
 
-// Group 1: Normal (1500 * 2 = 3000 pcs)
+// Group 1: Normal (1500 * 2 = 3000 pcs @ 4% loss = 3120 pcs)
 const g1Result = fullEstResult.categoryGroups[0];
 assertEquals(g1Result.isSpecialUTopOrder, false, 'Group 1 isSpecialUTopOrder is false');
 const g1UTopRow = g1Result.calculation.materials.processedRows.find(r => r.component === 'U-TOP');
-assertEquals(g1UTopRow.totalQuantity, 3000, 'Group 1 U-Top BOM quantity = 3000 pcs');
+assertEquals(Math.round(g1UTopRow.totalQuantity), 3120, 'Group 1 U-Top BOM quantity = 3120 pcs (3000 + 4% loss)');
 
-// Group 2: Special (1500 * 1 = 1500 pcs)
+// Group 2: Special (1500 * 1 = 1500 pcs @ 4% loss = 1560 pcs)
 const g2Result = fullEstResult.categoryGroups[1];
 assertEquals(g2Result.isSpecialUTopOrder, true, 'Group 2 isSpecialUTopOrder is true');
 const g2UTopRow = g2Result.calculation.materials.processedRows.find(r => r.component === 'U-TOP');
-assertEquals(g2UTopRow.totalQuantity, 1500, 'Group 2 U-Top BOM quantity = 1500 pcs');
+assertEquals(Math.round(g2UTopRow.totalQuantity), 1560, 'Group 2 U-Top BOM quantity = 1560 pcs (1500 + 4% loss)');
 
-// Check Aggregated BOM: 3000 + 1500 = 4500 pcs
+// Check Aggregated BOM: 3120 + 1560 = 4680 pcs
 const aggUTopRow = fullEstResult.aggregatedMaterials.processedRows.find(r => r.component === 'U-TOP');
 assert(aggUTopRow !== undefined, 'Aggregated BOM contains U-TOP');
-assertEquals(aggUTopRow.totalQuantity, 4500, 'Aggregated U-Top BOM quantity = 4500 pcs (3000 + 1500)');
+assertEquals(Math.round(aggUTopRow.totalQuantity), 4680, 'Aggregated U-Top BOM quantity = 4680 pcs (3120 + 1560)');
 assertEquals(aggUTopRow.unit, 'Pcs', 'Aggregated U-Top BOM Unit is Pcs');
 
 // Check Storage normalization

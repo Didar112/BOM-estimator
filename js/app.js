@@ -10,7 +10,6 @@ const SUPPORTED_ITEM_VARIANTS = [
   { key: 'cz_5', category: 'cz', size: '#5', displayName: 'CZ#5', label: 'CZ#5 (Nylon Zipper #5)' },
   { key: 'cz_3', category: 'cz', size: '#3', displayName: 'CZ#3', label: 'CZ#3 (Nylon Zipper #3)' },
   { key: 'mz_3', category: 'mz', size: '#3', displayName: 'MZ#3', label: 'MZ#3 (Metal Zipper #3)' },
-  { key: 'mz_4', category: 'mz', size: '#4', displayName: 'MZ#4', label: 'MZ#4 (Metal Zipper #4)' },
   { key: 'mz_5', category: 'mz', size: '#5', displayName: 'MZ#5', label: 'MZ#5 (Metal Zipper #5)' },
   { key: 'pz_3', category: 'pz', size: '#3', displayName: 'PZ#3', label: 'PZ#3 (Plastic Zipper #3)' },
   { key: 'pz_5', category: 'pz', size: '#5', displayName: 'PZ#5', label: 'PZ#5 (Plastic Zipper #5)' },
@@ -52,6 +51,65 @@ function getVariantDisplayName(cat, size) {
 }
 
 /**
+ * Generate a unique grouping key for identical item types and units.
+ * Items of the same category, size/variantKey, and lengthUnit are grouped together.
+ * Different length units (e.g. inch vs cm) produce separate keys.
+ * 
+ * @param {Object} item 
+ * @returns {string} Group key e.g. "cz_5__inch", "mz_3__cm"
+ */
+function getItemTypeGroupKey(item) {
+  if (!item) return 'default__inch';
+  const cat = String(item.category || 'cz').toLowerCase().trim();
+  const sz = String(item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5')).toLowerCase().trim();
+  const unit = String(item.lengthUnit || 'inch').toLowerCase().trim();
+  
+  let baseKey = '';
+  if (item.variantKey) {
+    baseKey = String(item.variantKey).toLowerCase().trim();
+  } else if (cat === 'wire') {
+    if (sz.includes('3')) baseKey = 'wire_3';
+    else if (sz.includes('long')) baseKey = 'wire_5_long';
+    else baseKey = 'wire_5_normal';
+  } else {
+    const cleanSz = sz.replace(/[^0-9]/g, '') || '5';
+    baseKey = `${cat}_${cleanSz}`;
+  }
+
+  return `${baseKey}__${unit}`;
+}
+
+/**
+ * Generate a descriptive display title for an item type group including its unit.
+ * e.g. "CZ#5 (Inch)", "MZ#3 (cm)"
+ * 
+ * @param {string} cat 
+ * @param {string} sz 
+ * @param {string} unit 
+ * @param {string} [variantKey] 
+ * @returns {string}
+ */
+function getGroupDisplayName(cat, sz, unit, variantKey) {
+  let displayName = '';
+  if (variantKey && typeof getVariantDef === 'function') {
+    const vDef = getVariantDef(variantKey);
+    if (vDef) displayName = vDef.displayName;
+  }
+  if (!displayName) {
+    if (cat === 'wire') {
+      if (sz.includes('3')) displayName = 'WIRE#3';
+      else if (sz.includes('long')) displayName = 'WIRE#5 Long Teeth';
+      else displayName = 'WIRE#5 Normal Teeth';
+    } else {
+      const cleanSz = sz.startsWith('#') ? sz : ('#' + sz);
+      displayName = `${cat.toUpperCase()}${cleanSz}`;
+    }
+  }
+  const unitLabel = (unit === 'cm' || unit === 'centimeter') ? 'cm' : 'Inch';
+  return `${displayName} (${unitLabel})`;
+}
+
+/**
  * Factory to create an independent Item object
  * @param {string} [variantKey='cz_5']
  * @param {Object} [overrides={}]
@@ -63,9 +121,32 @@ function createItem(variantKey = 'cz_5', overrides = {}) {
   const sz = vDef.size;
   const uniqueId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
 
-  const defaultSliderAdd = 8.0;
-  const defaultPinBoxLoss = 4.0;
-  const defaultHBottomLoss = (cat === 'mz' && String(sz).includes('3')) ? 4.0 : undefined;
+  const initQty = overrides.quantity !== undefined && overrides.quantity !== null ? overrides.quantity : 1000;
+  const getSliderDefault = (typeof window !== 'undefined' && window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage))
+    ? (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage)
+    : null;
+  const defaultSliderAdd = getSliderDefault ? getSliderDefault(initQty) : (initQty > 5000 ? 1.5 : (initQty > 2000 ? 2.5 : (initQty > 500 ? 4.0 : 8.0)));
+
+  const getPinBoxDefault = (typeof window !== 'undefined' && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
+    ? window.CalculatorEngine.getPinBoxDynamicLossPercentage
+    : null;
+  const defaultPinBoxLoss = getPinBoxDefault ? getPinBoxDefault(initQty) : (initQty > 2000 ? 2.5 : (initQty > 500 ? 4.0 : 8.0));
+
+  const getHBottomDefault = (typeof window !== 'undefined' && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
+    ? window.CalculatorEngine.getHBottomDynamicLossPercentage
+    : null;
+  const defaultHBottomLoss = (cat === 'mz' && String(sz).includes('3')) 
+    ? (getHBottomDefault ? getHBottomDefault(initQty) : (initQty > 2000 ? 2.5 : (initQty > 500 ? 4.0 : 8.0))) 
+    : undefined;
+
+  const getUTopDefault = (typeof window !== 'undefined' && window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage)
+    ? window.CalculatorEngine.getUTopDynamicLossPercentage
+    : null;
+  const defaultUTopLoss = getUTopDefault ? getUTopDefault(initQty) : (initQty > 2000 ? 2.5 : (initQty > 500 ? 4.0 : 8.0));
+
+  const unitSelect = (typeof document !== 'undefined') ? document.getElementById('select-item-unit') : null;
+  const unitSelectVal = (unitSelect && unitSelect.value) ? unitSelect.value : null;
+  const defaultUnit = overrides.lengthUnit || unitSelectVal || (appState && appState.lengthUnit) || (appState && appState.currentEstimate && appState.currentEstimate.lengthUnit) || 'inch';
 
   const newItem = {
     id: uniqueId,
@@ -76,8 +157,8 @@ function createItem(variantKey = 'cz_5', overrides = {}) {
     zipperSize: sz,
     zipperType: overrides.zipperType || 'closed_end',
     length: overrides.length !== undefined && overrides.length !== null ? overrides.length : 7.5,
-    lengthUnit: overrides.lengthUnit || 'inch',
-    quantity: overrides.quantity !== undefined && overrides.quantity !== null ? overrides.quantity : 1000,
+    lengthUnit: defaultUnit,
+    quantity: initQty,
     color: overrides.color || '',
     styleName: overrides.styleName || '',
     remarks: overrides.remarks || '',
@@ -91,6 +172,8 @@ function createItem(variantKey = 'cz_5', overrides = {}) {
     pinBoxPerZipper: 1,
     hBottomLossPercent: defaultHBottomLoss,
     isHBottomLossOverridden: false,
+    uTopLossPercent: overrides.uTopLossPercent !== undefined ? overrides.uTopLossPercent : defaultUTopLoss,
+    isUTopLossOverridden: overrides.isUTopLossOverridden !== undefined ? overrides.isUTopLossOverridden : false,
     isSpecialUTopOrder: false,
     czParams: overrides.czParams ? { ...overrides.czParams } : {},
     mzParams: overrides.mzParams ? { ...overrides.mzParams } : {},
@@ -145,31 +228,12 @@ function syncStateItemsAndGroups() {
   if (!Array.isArray(est.categoryGroups)) est.categoryGroups = [];
 
   if (est.items.length > 0) {
-    // Mirror items to categoryGroups (one category group per item)
-    est.categoryGroups = est.items.map((item, idx) => ({
-      id: item.id,
-      name: item.displayName || item.name || `Item ${idx + 1}`,
-      category: item.category || 'cz',
-      styleName: item.styleName || '',
-      color: item.color || '',
-      remarks: item.remarks || '',
-      lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : 3.0,
-      classLossOverrides: item.classLossOverrides || {},
-      sliderAdditionPercent: item.sliderAdditionPercent,
-      sliderAddPercent: item.sliderAddPercent || item.sliderAdditionPercent,
-      isSliderOverridden: item.isSliderOverridden,
-      pinBoxLossPercent: item.pinBoxLossPercent,
-      isPinBoxLossOverridden: item.isPinBoxLossOverridden,
-      pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
-      hBottomLossPercent: item.hBottomLossPercent,
-      isHBottomLossOverridden: item.isHBottomLossOverridden,
-      isSpecialUTopOrder: Boolean(item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder)),
-      czParams: item.czParams || {},
-      mzParams: item.mzParams || {},
-      wireParams: item.wireParams || {},
-      pzParams: item.pzParams || {},
-      variants: [{
-        id: `var_${item.id}`,
+    // Keep item.variants in sync for each item
+    est.items.forEach((item, idx) => {
+      const v = (Array.isArray(item.variants) && item.variants.length > 0) ? item.variants[0] : {};
+      item.variants = [{
+        ...v,
+        id: v.id || `var_${item.id}`,
         name: item.displayName || item.name || `Item ${idx + 1}`,
         zipperSize: item.zipperSize || '#5',
         zipperType: item.zipperType || 'closed_end',
@@ -180,8 +244,155 @@ function syncStateItemsAndGroups() {
         color: item.color || '',
         remarks: item.remarks || '',
         bomRows: item.bomRows || []
-      }]
-    }));
+      }];
+    });
+
+    // Group items into categoryGroups by item type and lengthUnit
+    const groupMap = new Map();
+
+    est.items.forEach((item, idx) => {
+      const groupKey = getItemTypeGroupKey(item);
+      const cat = String(item.category || 'cz').toLowerCase().trim();
+      const sz = String(item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5')).toLowerCase().trim();
+      const unit = String(item.lengthUnit || 'inch').toLowerCase().trim();
+
+      if (!groupMap.has(groupKey)) {
+        const groupName = getGroupDisplayName(cat, sz, unit, item.variantKey);
+        groupMap.set(groupKey, {
+          id: `group_${groupKey}`,
+          key: groupKey,
+          name: groupName,
+          category: cat,
+          zipperSize: item.zipperSize || sz,
+          lengthUnit: unit,
+          styleName: item.styleName || '',
+          color: item.color || '',
+          remarks: item.remarks || '',
+          lossPercent: item.lossPercent !== undefined ? Number(item.lossPercent) : (cat === 'wire' ? (sz === '#3' ? 4.0 : 5.0) : 3.0),
+          classLossOverrides: {},
+          sliderAdditionPercent: item.sliderAdditionPercent,
+          sliderAddPercent: item.sliderAddPercent || item.sliderAdditionPercent,
+          isSliderOverridden: false,
+          pinBoxLossPercent: item.pinBoxLossPercent,
+          isPinBoxLossOverridden: false,
+          pinBoxPerZipper: item.pinBoxPerZipper !== undefined ? Number(item.pinBoxPerZipper) : 1,
+          hBottomLossPercent: item.hBottomLossPercent,
+          isHBottomLossOverridden: false,
+          isSpecialUTopOrder: false,
+          czParams: {},
+          mzParams: {},
+          wireParams: {},
+          pzParams: {},
+          items: [],
+          variants: []
+        });
+      }
+
+      const grp = groupMap.get(groupKey);
+      grp.items.push(item);
+
+      if (item.classLossOverrides) {
+        Object.assign(grp.classLossOverrides, item.classLossOverrides);
+      }
+      if (item.isSliderOverridden) {
+        grp.isSliderOverridden = true;
+        if (item.sliderAdditionPercent !== undefined && item.sliderAdditionPercent !== null) {
+          grp.sliderAdditionPercent = item.sliderAdditionPercent;
+          grp.sliderAddPercent = item.sliderAdditionPercent;
+        }
+      }
+      if (item.isPinBoxLossOverridden) {
+        grp.isPinBoxLossOverridden = true;
+        if (item.pinBoxLossPercent !== undefined && item.pinBoxLossPercent !== null) {
+          grp.pinBoxLossPercent = item.pinBoxLossPercent;
+        }
+      }
+      if (item.isHBottomLossOverridden) {
+        grp.isHBottomLossOverridden = true;
+        if (item.hBottomLossPercent !== undefined && item.hBottomLossPercent !== null) {
+          grp.hBottomLossPercent = item.hBottomLossPercent;
+        }
+      }
+      if (item.isUTopLossOverridden) {
+        grp.isUTopLossOverridden = true;
+        if (item.uTopLossPercent !== undefined && item.uTopLossPercent !== null) {
+          grp.uTopLossPercent = item.uTopLossPercent;
+        }
+      }
+      if (item.isSpecialUTopOrder || (item.czParams && item.czParams.isSpecialUTopOrder) || (item.mzParams && item.mzParams.isSpecialUTopOrder) || (item.pzParams && item.pzParams.isSpecialUTopOrder)) {
+        grp.isSpecialUTopOrder = true;
+      }
+      if (item.czParams) Object.assign(grp.czParams, item.czParams);
+      if (item.mzParams) Object.assign(grp.mzParams, item.mzParams);
+      if (item.wireParams) Object.assign(grp.wireParams, item.wireParams);
+      if (item.pzParams) Object.assign(grp.pzParams, item.pzParams);
+
+      grp.variants.push({
+        id: item.id,
+        itemId: item.id,
+        name: item.displayName || item.name || `Item ${idx + 1}`,
+        zipperSize: item.zipperSize || grp.zipperSize,
+        zipperType: item.zipperType || 'closed_end',
+        length: item.length !== undefined && item.length !== null ? item.length : 0,
+        lengthUnit: item.lengthUnit || grp.lengthUnit,
+        allowance: item.allowance !== undefined ? item.allowance : 0,
+        quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 0,
+        color: item.color || '',
+        remarks: item.remarks || '',
+        bomRows: item.bomRows || []
+      });
+    });
+
+    const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+    groupMap.forEach(grp => {
+      const groupQty = grp.variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+      grp.totalQuantity = groupQty;
+
+      if (!grp.isSliderOverridden && calcEng && (calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage)) {
+        const getSliderDefault = calcEng.getSliderDynamicAddPercentage || calcEng.getSliderDynamicLossPercentage;
+        const dynSlider = getSliderDefault(groupQty);
+        grp.sliderAdditionPercent = dynSlider;
+        grp.sliderAddPercent = dynSlider;
+        grp.items.forEach(it => {
+          if (!it.isSliderOverridden) {
+            it.sliderAdditionPercent = dynSlider;
+            it.sliderAddPercent = dynSlider;
+          }
+        });
+      }
+
+      if (grp.category === 'mz' && calcEng && calcEng.getPinBoxDynamicLossPercentage) {
+        if (!grp.isPinBoxLossOverridden) {
+          const dynPin = calcEng.getPinBoxDynamicLossPercentage(groupQty);
+          grp.pinBoxLossPercent = dynPin;
+          grp.items.forEach(it => {
+            if (!it.isPinBoxLossOverridden) it.pinBoxLossPercent = dynPin;
+          });
+        }
+      }
+
+      if (calcEng && calcEng.getHBottomDynamicLossPercentage) {
+        if (!grp.isHBottomLossOverridden) {
+          const dynHBottom = calcEng.getHBottomDynamicLossPercentage(groupQty);
+          grp.hBottomLossPercent = dynHBottom;
+          grp.items.forEach(it => {
+            if (!it.isHBottomLossOverridden) it.hBottomLossPercent = dynHBottom;
+          });
+        }
+      }
+
+      if (calcEng && calcEng.getUTopDynamicLossPercentage) {
+        if (!grp.isUTopLossOverridden) {
+          const dynUTop = calcEng.getUTopDynamicLossPercentage(groupQty);
+          grp.uTopLossPercent = dynUTop;
+          grp.items.forEach(it => {
+            if (!it.isUTopLossOverridden) it.uTopLossPercent = dynUTop;
+          });
+        }
+      }
+    });
+
+    est.categoryGroups = Array.from(groupMap.values());
 
     if (!appState.activeItemId || !est.items.some(it => it.id === appState.activeItemId)) {
       appState.activeItemId = est.items[0].id;
@@ -253,6 +464,7 @@ let appState = {
     id: null,
     name: '',
     reference: 'EST-' + Math.floor(1000 + Math.random() * 9000),
+    lengthUnit: 'inch',
     items: [],
     categoryGroups: [],
     labor: {
@@ -269,11 +481,15 @@ let appState = {
     otherCosts: [],
     priceOverrides: {}
   },
+  lengthUnit: 'inch',
   activeItemId: null,
   selectedMaterialKey: null,
   selectedCalcDetailsGroupId: null,
   lastCalculation: null,
-  isFormulaDetailsCollapsed: false
+  isFormulaDetailsCollapsed: false,
+  bomViewMode: 'individual',
+  isViewingSavedRecord: false,
+  viewingSavedEstimateId: null
 };
 
 if (typeof window !== 'undefined') {
@@ -303,6 +519,25 @@ function initApp() {
 
   // Update Saved Estimates Badge Counter
   updateSavedBadgeCount();
+
+  // Update Ongoing Estimate Button & Badge State
+  updateOngoingEstimateUI();
+
+  // Background synchronize with MySQL backend if available
+  if (window.StorageManager && typeof window.StorageManager.syncWithBackend === 'function') {
+    window.StorageManager.syncWithBackend().then(synced => {
+      if (synced) {
+        updateSavedBadgeCount();
+        if (typeof updatePresetDropdown === 'function') updatePresetDropdown();
+      }
+    }).catch(() => {});
+  }
+
+  // Listen for backend synchronization events
+  window.addEventListener('bom:storage-synced', () => {
+    updateSavedBadgeCount();
+    if (typeof updatePresetDropdown === 'function') updatePresetDropdown();
+  });
 }
 
 /**
@@ -316,17 +551,21 @@ function populateCommonForm() {
  * Bind Static DOM Event Listeners
  */
 function bindEvents() {
-  // Toggle Formula Details Card Body
+  // Toggle Formula Details Card Body / Modal Trigger
   const btnToggleFormula = document.getElementById('btn-toggle-formula-details');
   if (btnToggleFormula) {
     btnToggleFormula.addEventListener('click', () => {
-      const body = document.getElementById('formula-details-body');
-      const label = document.getElementById('label-toggle-formula');
-      if (body) {
-        appState.isFormulaDetailsCollapsed = !appState.isFormulaDetailsCollapsed;
-        body.style.display = appState.isFormulaDetailsCollapsed ? 'none' : 'block';
-        if (label) label.textContent = appState.isFormulaDetailsCollapsed ? 'Show Details' : 'Hide Details';
-      }
+      renderCalculationDetails();
+      openModal('modal-formula-details');
+    });
+  }
+
+  // Open Calculation Details Modal from Select Item Card Header
+  const btnOpenFormulaModal = document.getElementById('btn-open-formula-modal');
+  if (btnOpenFormulaModal) {
+    btnOpenFormulaModal.addEventListener('click', () => {
+      renderCalculationDetails();
+      openModal('modal-formula-details');
     });
   }
 
@@ -336,6 +575,33 @@ function bindEvents() {
     selectCalcDetailsGroup.addEventListener('change', (e) => {
       appState.selectedCalcDetailsGroupId = e.target.value;
       renderCalculationDetails();
+    });
+  }
+
+  // Button: "View BoM" (Scroll down to BoM table)
+  const btnViewBom = document.getElementById('btn-view-bom');
+  if (btnViewBom) {
+    btnViewBom.addEventListener('click', () => {
+      const bomSection = document.getElementById('section-bom-materials');
+      if (bomSection) {
+        bomSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  }
+
+  // Button: "Merge BoM" (Toggle Merged BOM view & scroll down)
+  const btnMergeBom = document.getElementById('btn-merge-bom');
+  if (btnMergeBom) {
+    btnMergeBom.addEventListener('click', () => {
+      appState.bomViewMode = (appState.bomViewMode === 'merged') ? 'individual' : 'merged';
+      updateMergeBomButtonState();
+      if (appState.lastCalculation) {
+        renderConsolidatedBOM(appState.lastCalculation.aggregatedMaterials);
+      }
+      const bomSection = document.getElementById('section-bom-materials');
+      if (bomSection) {
+        bomSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     });
   }
 
@@ -349,6 +615,14 @@ function bindEvents() {
     });
   }
 
+  // Dropdown: Length Unit Selector (Top Toolbar, beside "+ Add New Item")
+  const selectItemUnit = document.getElementById('select-item-unit');
+  if (selectItemUnit) {
+    selectItemUnit.addEventListener('change', (e) => {
+      handleUnitChange(e.target.value);
+    });
+  }
+
   // Delegated Clicks & Inputs on Items Container
   const itemsContainer = document.getElementById('items-container');
   if (itemsContainer) {
@@ -358,6 +632,25 @@ function bindEvents() {
         e.stopPropagation();
         const itemId = removeBtn.getAttribute('data-item-id');
         handleRemoveItem(itemId);
+        return;
+      }
+
+      const unitAddon = e.target.closest('.item-unit-addon-label');
+      if (unitAddon) {
+        e.stopPropagation();
+        const itemId = unitAddon.getAttribute('data-item-id');
+        const it = (appState.currentEstimate.items || []).find(x => x.id === itemId);
+        if (it) {
+          it.lengthUnit = (it.lengthUnit === 'cm') ? 'inch' : 'cm';
+          if (Array.isArray(it.variants) && it.variants.length > 0) {
+            it.variants[0].lengthUnit = it.lengthUnit;
+          }
+          if (typeof window !== 'undefined' && window.BOMRules) {
+            it.allowance = window.BOMRules.getSuggestedAllowance(it.category, it.zipperSize, it.lengthUnit, it.zipperType);
+          }
+          syncStateItemsAndGroups();
+          rebuildAndRenderAll();
+        }
         return;
       }
 
@@ -402,14 +695,19 @@ function bindEvents() {
         return;
       }
 
-      if (target.classList.contains('input-cz-utop-special')) {
+      if (target.classList.contains('input-cz-utop-special') || target.classList.contains('input-mz-utop-special') || target.classList.contains('input-pz-utop-special') || target.classList.contains('input-utop-special')) {
         const activeItem = getActiveItem();
         if (activeItem) {
           const isChecked = Boolean(target.checked);
           activeItem.isSpecialUTopOrder = isChecked;
           activeItem.czParams = activeItem.czParams || {};
           activeItem.czParams.isSpecialUTopOrder = isChecked;
+          activeItem.mzParams = activeItem.mzParams || {};
+          activeItem.mzParams.isSpecialUTopOrder = isChecked;
+          activeItem.pzParams = activeItem.pzParams || {};
+          activeItem.pzParams.isSpecialUTopOrder = isChecked;
           updateLiveCalculations();
+          checkStaticParametersDirty();
         }
       }
     });
@@ -419,6 +717,36 @@ function bindEvents() {
         handleSelectItemConfigInput(e);
       });
     });
+  }
+
+  // Custom Parameter Preset Events
+  const selectParamPreset = document.getElementById('select-param-preset');
+  if (selectParamPreset) {
+    selectParamPreset.addEventListener('change', handlePresetDropdownChange);
+  }
+
+  const btnSaveCustomParams = document.getElementById('btn-save-custom-params');
+  if (btnSaveCustomParams) {
+    btnSaveCustomParams.addEventListener('click', openSavePresetModal);
+  }
+
+  const btnLoadStandardParams = document.getElementById('btn-load-standard-params');
+  if (btnLoadStandardParams) {
+    btnLoadStandardParams.addEventListener('click', loadStandardParametersForActiveItem);
+  }
+
+  const formSavePreset = document.getElementById('form-save-custom-preset');
+  if (formSavePreset) {
+    formSavePreset.addEventListener('submit', handleSavePresetSubmit);
+  }
+
+  const btnCloseSavePreset = document.getElementById('btn-close-save-preset-modal');
+  if (btnCloseSavePreset) {
+    btnCloseSavePreset.addEventListener('click', closeSavePresetModal);
+  }
+  const btnCancelSavePreset = document.getElementById('btn-cancel-save-preset');
+  if (btnCancelSavePreset) {
+    btnCancelSavePreset.addEventListener('click', closeSavePresetModal);
   }
 
   // Legacy Button: "+ Add New Category" (calls handleAddNewItem)
@@ -438,7 +766,6 @@ function bindEvents() {
           item.bomRows = window.BOMRules ? window.BOMRules.generateSuggestedBOM(item, cat) : [];
         });
         rebuildAndRenderAll();
-        showToast('All item BOM recipes reset to suggested defaults', 'info');
       }
     });
   }
@@ -461,6 +788,16 @@ function bindEvents() {
     btnNewEstimate.addEventListener('click', handleNewEstimate);
   }
 
+  const btnOngoingEstimate = document.getElementById('btn-ongoing-estimate');
+  if (btnOngoingEstimate) {
+    btnOngoingEstimate.addEventListener('click', handleOngoingEstimateClick);
+  }
+
+  const btnSaveCalculation = document.getElementById('btn-save-calculation');
+  if (btnSaveCalculation) {
+    btnSaveCalculation.addEventListener('click', openSaveEstimateModal);
+  }
+
   const btnSavedEstimates = document.getElementById('btn-saved-estimates');
   if (btnSavedEstimates) {
     btnSavedEstimates.addEventListener('click', openSavedEstimatesModal);
@@ -477,13 +814,20 @@ function bindEvents() {
     formSaveEstimate.addEventListener('submit', handleSaveEstimateSubmit);
   }
 
+  // Saved Estimates Search Filter
+  const inputSearchSaved = document.getElementById('input-search-saved');
+  if (inputSearchSaved) {
+    inputSearchSaved.addEventListener('input', (e) => {
+      renderSavedEstimatesList(e.target.value);
+    });
+  }
+
   // Backup Import & Export
   const btnExportBackup = document.getElementById('btn-export-backup');
   if (btnExportBackup) {
     btnExportBackup.addEventListener('click', () => {
       if (window.StorageManager) {
         window.StorageManager.exportEstimatesToJSON();
-        showToast('Estimates backup downloaded successfully', 'success');
       }
     });
   }
@@ -509,14 +853,6 @@ function bindEvents() {
       }
     });
   });
-
-  // Search input in Saved Estimates modal
-  const inputSearchSaved = document.getElementById('input-search-saved');
-  if (inputSearchSaved) {
-    inputSearchSaved.addEventListener('input', (e) => {
-      renderSavedEstimatesList(e.target.value);
-    });
-  }
 
   // Delegated Keystroke Listeners on Category Groups Container for backward compatibility
   const catGroupsContainer = document.getElementById('category-groups-container');
@@ -581,10 +917,15 @@ function bindEvents() {
  * @param {string} [variantKey='cz_5']
  */
 function handleAddNewItem(variantKey = 'cz_5') {
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+
   if (!Array.isArray(appState.currentEstimate.items)) {
     appState.currentEstimate.items = [];
   }
-  const newItem = createItem(variantKey);
+  const unitSelect = (typeof document !== 'undefined') ? document.getElementById('select-item-unit') : null;
+  const selectedUnit = (unitSelect && unitSelect.value) ? unitSelect.value : (appState.lengthUnit || 'inch');
+  const newItem = createItem(variantKey, { lengthUnit: selectedUnit });
   appState.currentEstimate.items.push(newItem);
   appState.activeItemId = newItem.id;
   appState.selectedCalcDetailsGroupId = newItem.id;
@@ -599,8 +940,33 @@ function handleAddNewItem(variantKey = 'cz_5') {
     const lengthInput = newCardEl.querySelector('.input-item-length') || newCardEl.querySelector('.input-item-qty');
     if (lengthInput && typeof lengthInput.focus === 'function') lengthInput.focus();
   }
+}
 
-  showToast(`Added ${newItem.displayName}. Ready to configure.`, 'success');
+/**
+ * Handle switching length unit (inch vs cm) from the top toolbar
+ * @param {string} newUnit - 'inch' or 'cm'
+ */
+function handleUnitChange(newUnit = 'inch') {
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+  appState.lengthUnit = newUnit;
+
+  if (appState.currentEstimate) {
+    appState.currentEstimate.lengthUnit = newUnit;
+    const items = appState.currentEstimate.items || [];
+    items.forEach(item => {
+      item.lengthUnit = newUnit;
+      if (Array.isArray(item.variants) && item.variants.length > 0) {
+        item.variants[0].lengthUnit = newUnit;
+      }
+      if (typeof window !== 'undefined' && window.BOMRules) {
+        item.allowance = window.BOMRules.getSuggestedAllowance(item.category, item.zipperSize, newUnit, item.zipperType);
+      }
+    });
+  }
+
+  syncStateItemsAndGroups();
+  rebuildAndRenderAll();
 }
 
 /**
@@ -608,6 +974,9 @@ function handleAddNewItem(variantKey = 'cz_5') {
  * @param {string} itemId 
  */
 function handleRemoveItem(itemId) {
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+
   const items = appState.currentEstimate.items || [];
   if (items.length <= 1) {
     if (!confirm('Remove this item? The items list will be empty.')) return;
@@ -616,7 +985,6 @@ function handleRemoveItem(itemId) {
     appState.selectedCalcDetailsGroupId = null;
     appState.selectedMaterialKey = null;
     rebuildAndRenderAll();
-    showToast('All items removed.', 'info');
     return;
   }
 
@@ -638,7 +1006,6 @@ function handleRemoveItem(itemId) {
   }
 
   rebuildAndRenderAll();
-  showToast(`Removed "${targetItem.displayName || targetItem.name}".`, 'info');
 }
 
 /**
@@ -651,7 +1018,7 @@ function updateActiveMaterialForSelectedItem(itemId) {
 
   // 1. Search categoryGroups matching itemId
   if (Array.isArray(lastCalc.categoryGroups)) {
-    const group = lastCalc.categoryGroups.find(g => g.id === itemId);
+    const group = lastCalc.categoryGroups.find(g => g.id === itemId || (g.variants && g.variants.some(v => v.id === itemId || v.itemId === itemId)));
     if (group && group.materials && Array.isArray(group.materials.processedRows) && group.materials.processedRows.length > 0) {
       const firstRow = group.materials.processedRows[0];
       appState.selectedMaterialKey = firstRow.uniqueKey || `${group.id}__${firstRow.key || firstRow.id}`;
@@ -720,6 +1087,9 @@ function selectActiveItem(itemId, shouldFocus = false) {
  * @param {string} newVariantKey
  */
 function handleChangeActiveItemVariant(newVariantKey) {
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+
   const activeItem = getActiveItem();
   if (!activeItem) return;
 
@@ -749,6 +1119,10 @@ function handleChangeActiveItemVariant(newVariantKey) {
     activeItem.variants[0].name = vDef.displayName;
     activeItem.variants[0].allowance = activeItem.allowance;
     activeItem.variants[0].bomRows = activeItem.bomRows || [];
+    activeItem.variants[0].quantity = activeItem.quantity;
+    activeItem.variants[0].length = activeItem.length;
+    activeItem.variants[0].lengthUnit = activeItem.lengthUnit;
+    activeItem.variants[0].zipperType = activeItem.zipperType;
   }
 
   rebuildAndRenderAll();
@@ -762,6 +1136,9 @@ function handleItemCardInput(e) {
   const target = e.target;
   if (!target) return;
 
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+
   const itemId = target.getAttribute('data-item-id') || target.getAttribute('data-group-id');
   if (!itemId) return;
 
@@ -770,61 +1147,154 @@ function handleItemCardInput(e) {
 
   if (target.classList.contains('input-item-qty') || target.classList.contains('input-var-qty')) {
     item.quantity = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].quantity = item.quantity;
+    }
+    const itemGroupKey = getItemTypeGroupKey(item);
+    const similarItems = (appState.currentEstimate.items || []).filter(it => getItemTypeGroupKey(it) === itemGroupKey);
+    const groupQty = similarItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
+
+    if (!item.isLossOverridden && item.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+      const classKey = window.CalculatorEngine.getVariantZipperClass(item, item.category);
+      if (classKey && item.classLossOverrides[classKey] !== undefined) {
+        delete item.classLossOverrides[classKey];
+      }
+      similarItems.forEach(sim => {
+        if (!sim.isLossOverridden && sim.classLossOverrides && classKey && sim.classLossOverrides[classKey] !== undefined) {
+          delete sim.classLossOverrides[classKey];
+        }
+      });
+    }
     if (!item.isSliderOverridden) {
       const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
       if (getSliderDefault) {
-        const dynSliderAdd = getSliderDefault(Math.max(0, Number(item.quantity) || 0));
+        const dynSliderAdd = getSliderDefault(groupQty);
         item.sliderAdditionPercent = dynSliderAdd;
         item.sliderAddPercent = dynSliderAdd;
-        const sliderInput = document.getElementById(`input-slider-${item.id}`);
+        similarItems.forEach(sim => {
+          if (!sim.isSliderOverridden) {
+            sim.sliderAdditionPercent = dynSliderAdd;
+            sim.sliderAddPercent = dynSliderAdd;
+          }
+        });
+        const sliderInput = document.getElementById(`input-slider-${item.id}`) ||
+          (appState.activeItemId === item.id ? document.querySelector('#select-item-config-body .input-group-slider-add') : null);
         if (sliderInput) sliderInput.value = dynSliderAdd;
       }
     }
     if (!item.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
-      const pinBoxQty = (item.zipperType === 'open_end' || item.zipperType === 'two_way') ? Math.max(0, Number(item.quantity) || 0) : 0;
-      const dynPinBox = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxQty > 0 ? pinBoxQty : Math.max(0, Number(item.quantity) || 0));
-      item.pinBoxLossPercent = dynPinBox;
-      const pinBoxInput = document.getElementById(`input-pin-box-${item.id}`);
-      if (pinBoxInput) pinBoxInput.value = dynPinBox;
+      const isMz = (item.category === 'mz' || item.category === 'metal');
+      if (isMz) {
+        const dynPinBox = window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupQty);
+        item.pinBoxLossPercent = dynPinBox;
+        similarItems.forEach(sim => {
+          if (!sim.isPinBoxLossOverridden) sim.pinBoxLossPercent = dynPinBox;
+        });
+        const pinBoxInput = document.getElementById(`input-pin-box-${item.id}`) ||
+          (appState.activeItemId === item.id ? document.querySelector('#select-item-config-body .input-group-pin-box') : null);
+        if (pinBoxInput) pinBoxInput.value = dynPinBox;
+      }
     }
-    if (item.category === 'mz' && String(item.zipperSize || '').includes('3') && !item.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
-      const dynHBottom = window.CalculatorEngine.getHBottomDynamicLossPercentage(Math.max(0, Number(item.quantity) || 0));
+    if ((item.category === 'cz' || item.category === 'mz' || item.category === 'pz') && !item.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+      const dynHBottom = window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty);
       item.hBottomLossPercent = dynHBottom;
-      item.mzParams = item.mzParams || {};
-      item.mzParams.hBottomLossPercent = dynHBottom;
-      const hBottomInput = document.getElementById(`mz-hbottom-loss-${item.id}`);
+      similarItems.forEach(sim => {
+        if (!sim.isHBottomLossOverridden) {
+          sim.hBottomLossPercent = dynHBottom;
+          if (sim.category === 'cz') { sim.czParams = sim.czParams || {}; sim.czParams.hBottomLossPercent = dynHBottom; }
+          else if (sim.category === 'mz') { sim.mzParams = sim.mzParams || {}; sim.mzParams.hBottomLossPercent = dynHBottom; }
+          else if (sim.category === 'pz') { sim.pzParams = sim.pzParams || {}; sim.pzParams.hBottomLossPercent = dynHBottom; }
+        }
+      });
+      const hBottomInput = document.getElementById(`${item.category}-hbottom-loss-${item.id}`) ||
+        (appState.activeItemId === item.id ? document.querySelector('#select-item-config-body .input-group-hbottom-loss') : null);
       if (hBottomInput && !hBottomInput.disabled) hBottomInput.value = dynHBottom;
+    }
+    if ((item.category === 'cz' || item.category === 'mz' || item.category === 'pz') && !item.isUTopLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage) {
+      const dynUTop = window.CalculatorEngine.getUTopDynamicLossPercentage(groupQty);
+      item.uTopLossPercent = dynUTop;
+      similarItems.forEach(sim => {
+        if (!sim.isUTopLossOverridden) {
+          sim.uTopLossPercent = dynUTop;
+        }
+      });
+      const uTopInput = document.getElementById(`${item.category}-utop-loss-${item.id}`) ||
+        (appState.activeItemId === item.id ? document.querySelector('#select-item-config-body .input-group-utop-loss') : null);
+      if (uTopInput && !uTopInput.disabled) uTopInput.value = dynUTop;
     }
   } else if (target.classList.contains('input-item-length') || target.classList.contains('input-var-length')) {
     item.length = target.value !== '' ? (parseFloat(target.value) || 0) : '';
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].length = item.length;
+    }
+    if (!item.isLossOverridden && item.classLossOverrides && window.CalculatorEngine && window.CalculatorEngine.getVariantZipperClass) {
+      const classKey = window.CalculatorEngine.getVariantZipperClass(item, item.category);
+      if (classKey && item.classLossOverrides[classKey] !== undefined) {
+        delete item.classLossOverrides[classKey];
+      }
+    }
   } else if (target.classList.contains('input-item-unit') || target.classList.contains('input-var-unit')) {
     item.lengthUnit = target.value;
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].lengthUnit = item.lengthUnit;
+    }
     if (window.BOMRules) {
       item.allowance = window.BOMRules.getSuggestedAllowance(item.category, item.zipperSize, item.lengthUnit, item.zipperType);
     }
   } else if (target.classList.contains('input-item-type') || target.classList.contains('input-var-type')) {
     item.zipperType = target.value;
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].zipperType = item.zipperType;
+    }
     if (window.BOMRules) {
       item.allowance = window.BOMRules.getSuggestedAllowance(item.category, item.zipperSize, item.lengthUnit, item.zipperType);
       item.bomRows = window.BOMRules.generateSuggestedBOM(item, item.category);
     }
+    if (appState.activeItemId === item.id) {
+      renderSelectItemPanel();
+    }
   } else if (target.classList.contains('input-item-loss') || target.classList.contains('input-var-loss')) {
+    const classKey = target.getAttribute('data-class');
+    const itemGroupKey = getItemTypeGroupKey(item);
+    const similarItems = (appState.currentEstimate.items || []).filter(it => getItemTypeGroupKey(it) === itemGroupKey);
     if (target.value !== '') {
-      const classKey = target.getAttribute('data-class');
+      const val = parseFloat(target.value) || 0;
+      item.isLossOverridden = true;
       item.classLossOverrides = item.classLossOverrides || {};
-      if (classKey) item.classLossOverrides[classKey] = parseFloat(target.value) || 0;
-      item.lossPercent = parseFloat(target.value) || 0;
+      if (classKey) item.classLossOverrides[classKey] = val;
+      item.lossPercent = val;
+      similarItems.forEach(sim => {
+        sim.isLossOverridden = true;
+        sim.classLossOverrides = sim.classLossOverrides || {};
+        if (classKey) sim.classLossOverrides[classKey] = val;
+        sim.lossPercent = val;
+      });
     } else {
-      const classKey = target.getAttribute('data-class');
+      item.isLossOverridden = false;
       if (item.classLossOverrides && classKey) {
         delete item.classLossOverrides[classKey];
       }
+      similarItems.forEach(sim => {
+        sim.isLossOverridden = false;
+        if (sim.classLossOverrides && classKey) {
+          delete sim.classLossOverrides[classKey];
+        }
+      });
     }
   } else if (target.classList.contains('input-item-color')) {
     item.color = target.value;
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].color = item.color;
+    }
   } else if (target.classList.contains('input-item-remarks')) {
     item.remarks = target.value;
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+      item.variants[0].remarks = item.remarks;
+    }
   }
+
+  // Synchronize state immediately
+  syncStateItemsAndGroups();
 
   try {
     updateClassLossDisplay(item.id);
@@ -847,8 +1317,40 @@ function handleSelectItemConfigInput(e) {
   const target = e.target;
   if (!target) return;
 
+  appState.isViewingSavedRecord = false;
+  appState.viewingSavedEstimateId = null;
+
   const activeItem = getActiveItem();
   if (!activeItem) return;
+
+  const activeGroupKey = getItemTypeGroupKey(activeItem);
+  const similarItems = (appState.currentEstimate.items || []).filter(it => getItemTypeGroupKey(it) === activeGroupKey);
+
+  // 0. Tape Loss Rate % (Zipper Class Loss)
+  if (target.classList.contains('input-group-tape-loss')) {
+    const classKey = target.getAttribute('data-class');
+    if (target.value !== '') {
+      activeItem.isLossOverridden = true;
+      const numVal = parseFloat(target.value) || 0;
+      activeItem.lossPercent = numVal;
+      activeItem.classLossOverrides = activeItem.classLossOverrides || {};
+      if (classKey) activeItem.classLossOverrides[classKey] = numVal;
+    } else {
+      activeItem.isLossOverridden = false;
+      if (activeItem.classLossOverrides && classKey) {
+        delete activeItem.classLossOverrides[classKey];
+      }
+    }
+    similarItems.forEach(sim => {
+      sim.isLossOverridden = activeItem.isLossOverridden;
+      sim.lossPercent = activeItem.lossPercent;
+      sim.classLossOverrides = { ...(activeItem.classLossOverrides || {}) };
+    });
+    syncStateItemsAndGroups();
+    updateClassLossDisplay(activeItem.id);
+    updateLiveCalculations();
+    return;
+  }
 
   // 1. Slider Add %
   if (target.classList.contains('input-group-slider-add')) {
@@ -859,10 +1361,51 @@ function handleSelectItemConfigInput(e) {
     } else {
       activeItem.isSliderOverridden = false;
       const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
-      const dynSlider = getSliderDefault ? getSliderDefault(Math.max(0, Number(activeItem.quantity) || 0)) : 8.0;
+      const groupQty = similarItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
+      const dynSlider = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
       activeItem.sliderAdditionPercent = dynSlider;
       activeItem.sliderAddPercent = dynSlider;
     }
+    similarItems.forEach(sim => {
+      sim.isSliderOverridden = activeItem.isSliderOverridden;
+      sim.sliderAdditionPercent = activeItem.sliderAdditionPercent;
+      sim.sliderAddPercent = activeItem.sliderAddPercent;
+    });
+    updateLiveCalculations();
+    return;
+  }
+
+  // 1b. H-Bottom Loss % (Universal for closed-end zippers across all categories)
+  if (target.classList.contains('input-group-hbottom-loss')) {
+    if (target.value !== '') {
+      const val = parseFloat(target.value) || 0;
+      activeItem.isHBottomLossOverridden = true;
+      activeItem.hBottomLossPercent = val;
+      if (activeItem.czParams) activeItem.czParams.hBottomLossPercent = val;
+      if (activeItem.mzParams) activeItem.mzParams.hBottomLossPercent = val;
+      if (activeItem.pzParams) activeItem.pzParams.hBottomLossPercent = val;
+    } else {
+      activeItem.isHBottomLossOverridden = false;
+      delete activeItem.hBottomLossPercent;
+      if (activeItem.czParams) delete activeItem.czParams.hBottomLossPercent;
+      if (activeItem.mzParams) delete activeItem.mzParams.hBottomLossPercent;
+      if (activeItem.pzParams) delete activeItem.pzParams.hBottomLossPercent;
+      const groupQty = similarItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
+      const dynHBottom = window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage
+        ? window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty)
+        : 8.0;
+      activeItem.hBottomLossPercent = dynHBottom;
+      if (activeItem.czParams) activeItem.czParams.hBottomLossPercent = dynHBottom;
+      if (activeItem.mzParams) activeItem.mzParams.hBottomLossPercent = dynHBottom;
+      if (activeItem.pzParams) activeItem.pzParams.hBottomLossPercent = dynHBottom;
+    }
+    similarItems.forEach(sim => {
+      sim.isHBottomLossOverridden = activeItem.isHBottomLossOverridden;
+      sim.hBottomLossPercent = activeItem.hBottomLossPercent;
+      if (activeItem.czParams) sim.czParams = { ...(sim.czParams || {}), hBottomLossPercent: activeItem.hBottomLossPercent };
+      if (activeItem.mzParams) sim.mzParams = { ...(sim.mzParams || {}), hBottomLossPercent: activeItem.hBottomLossPercent };
+      if (activeItem.pzParams) sim.pzParams = { ...(sim.pzParams || {}), hBottomLossPercent: activeItem.hBottomLossPercent };
+    });
     updateLiveCalculations();
     return;
   }
@@ -874,11 +1417,39 @@ function handleSelectItemConfigInput(e) {
       activeItem.pinBoxLossPercent = parseFloat(target.value) || 0;
     } else {
       activeItem.isPinBoxLossOverridden = false;
+      const groupQty = similarItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
       const dynPin = window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage
-        ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(Math.max(0, Number(activeItem.quantity) || 0))
+        ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupQty)
         : 4.0;
       activeItem.pinBoxLossPercent = dynPin;
     }
+    similarItems.forEach(sim => {
+      sim.isPinBoxLossOverridden = activeItem.isPinBoxLossOverridden;
+      sim.pinBoxLossPercent = activeItem.pinBoxLossPercent;
+    });
+    updateLiveCalculations();
+    return;
+  }
+
+  // 2c. U-Top Loss % (Universal for zipper categories CZ, MZ, PZ)
+  if (target.classList.contains('input-group-utop-loss') || target.getAttribute('data-param') === 'uTopLossPercent') {
+    const groupQty = similarItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
+    if (target.value !== '') {
+      const val = parseFloat(target.value) || 0;
+      activeItem.isUTopLossOverridden = true;
+      activeItem.uTopLossPercent = val;
+    } else {
+      activeItem.isUTopLossOverridden = false;
+      delete activeItem.uTopLossPercent;
+      const dynUTop = window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage
+        ? window.CalculatorEngine.getUTopDynamicLossPercentage(groupQty)
+        : 4.0;
+      activeItem.uTopLossPercent = dynUTop;
+    }
+    similarItems.forEach(sim => {
+      sim.isUTopLossOverridden = activeItem.isUTopLossOverridden;
+      sim.uTopLossPercent = activeItem.uTopLossPercent;
+    });
     updateLiveCalculations();
     return;
   }
@@ -900,7 +1471,22 @@ function handleSelectItemConfigInput(e) {
       } else {
         delete activeItem.czParams[paramName];
       }
+      if (paramName === 'chainAllowance' && target.value !== '') {
+        activeItem.allowance = parseFloat(target.value) || 0;
+        if (Array.isArray(activeItem.variants) && activeItem.variants[0]) {
+          activeItem.variants[0].allowance = activeItem.allowance;
+        }
+      }
+      similarItems.forEach(sim => {
+        sim.czParams = { ...(sim.czParams || {}), ...(activeItem.czParams || {}) };
+        if (target.value === '') delete sim.czParams[paramName];
+        if (paramName === 'chainAllowance' && target.value !== '') {
+          sim.allowance = activeItem.allowance;
+          if (Array.isArray(sim.variants) && sim.variants[0]) sim.variants[0].allowance = activeItem.allowance;
+        }
+      });
       updateLiveCalculations();
+      checkStaticParametersDirty();
     }
     return;
   }
@@ -927,7 +1513,22 @@ function handleSelectItemConfigInput(e) {
           delete activeItem.mzParams[paramName];
         }
       }
+      if (paramName === 'chainAllowance' && target.value !== '') {
+        activeItem.allowance = parseFloat(target.value) || 0;
+        if (Array.isArray(activeItem.variants) && activeItem.variants[0]) {
+          activeItem.variants[0].allowance = activeItem.allowance;
+        }
+      }
+      similarItems.forEach(sim => {
+        sim.mzParams = { ...(sim.mzParams || {}), ...(activeItem.mzParams || {}) };
+        if (target.value === '') delete sim.mzParams[paramName];
+        if (paramName === 'chainAllowance' && target.value !== '') {
+          sim.allowance = activeItem.allowance;
+          if (Array.isArray(sim.variants) && sim.variants[0]) sim.variants[0].allowance = activeItem.allowance;
+        }
+      });
       updateLiveCalculations();
+      checkStaticParametersDirty();
     }
     return;
   }
@@ -949,7 +1550,22 @@ function handleSelectItemConfigInput(e) {
       } else {
         delete activeItem.wireParams[paramName];
       }
+      if (paramName === 'wireAllowance' && target.value !== '') {
+        activeItem.allowance = parseFloat(target.value) || 0;
+        if (Array.isArray(activeItem.variants) && activeItem.variants[0]) {
+          activeItem.variants[0].allowance = activeItem.allowance;
+        }
+      }
+      similarItems.forEach(sim => {
+        sim.wireParams = { ...(sim.wireParams || {}), ...(activeItem.wireParams || {}) };
+        if (target.value === '') delete sim.wireParams[paramName];
+        if (paramName === 'wireAllowance' && target.value !== '') {
+          sim.allowance = activeItem.allowance;
+          if (Array.isArray(sim.variants) && sim.variants[0]) sim.variants[0].allowance = activeItem.allowance;
+        }
+      });
       updateLiveCalculations();
+      checkStaticParametersDirty();
     }
     return;
   }
@@ -971,7 +1587,22 @@ function handleSelectItemConfigInput(e) {
       } else {
         delete activeItem.pzParams[paramName];
       }
+      if (paramName === 'chainAllowance' && target.value !== '') {
+        activeItem.allowance = parseFloat(target.value) || 0;
+        if (Array.isArray(activeItem.variants) && activeItem.variants[0]) {
+          activeItem.variants[0].allowance = activeItem.allowance;
+        }
+      }
+      similarItems.forEach(sim => {
+        sim.pzParams = { ...(sim.pzParams || {}), ...(activeItem.pzParams || {}) };
+        if (target.value === '') delete sim.pzParams[paramName];
+        if (paramName === 'chainAllowance' && target.value !== '') {
+          sim.allowance = activeItem.allowance;
+          if (Array.isArray(sim.variants) && sim.variants[0]) sim.variants[0].allowance = activeItem.allowance;
+        }
+      });
       updateLiveCalculations();
+      checkStaticParametersDirty();
     }
     return;
   }
@@ -1051,6 +1682,14 @@ function renderItemsList() {
   if (countBadge) countBadge.textContent = items.length;
   if (countDisplay) countDisplay.innerHTML = `Items (<span id="items-count-badge">${items.length}</span>)`;
 
+  const unitSelect = document.getElementById('select-item-unit');
+  if (unitSelect) {
+    const activeUnit = (items.length > 0 && items[0].lengthUnit) || (appState.currentEstimate && appState.currentEstimate.lengthUnit) || appState.lengthUnit || 'inch';
+    if (unitSelect.value !== activeUnit) {
+      unitSelect.value = activeUnit;
+    }
+  }
+
   if (!container) return;
 
   if (items.length === 0) {
@@ -1060,7 +1699,7 @@ function renderItemsList() {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
         <p class="font-medium text-slate-700 text-sm mb-1">No Items Configured</p>
-        <p class="text-xs text-muted">Select an item variant from the toolbar above and click <strong>+ Add New Item</strong> to begin.</p>
+        <p class="text-xs text-muted">Select an item variant from the toolbar below and click <strong>+ Add New Item</strong> to begin.</p>
       </div>
     `;
     return;
@@ -1073,7 +1712,7 @@ function renderItemsList() {
     const cat = item.category || 'cz';
     const size = item.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
     const unit = item.lengthUnit || 'inch';
-    const type = item.zipperType || 'closed_end';
+    const type = item.zipperType === 'open_end' ? 'open_end' : 'closed_end';
 
     let classKey = '';
     let isEligible = false;
@@ -1084,7 +1723,10 @@ function renderItemsList() {
       classKey = calcEng.getVariantZipperClass(item, cat);
       isEligible = calcEng.isClassEligibleForDynamicLoss ? calcEng.isClassEligibleForDynamicLoss(classKey) : false;
       const groupParams = item.czParams || item.mzParams || item.pzParams || item.wireParams || {};
-      const consolidation = calcEng.consolidateGroupClasses ? calcEng.consolidateGroupClasses([item], cat, groupParams, item.classLossOverrides) : {};
+      const itemGroupKey = getItemTypeGroupKey(item);
+      const similarItems = items.filter(it => getItemTypeGroupKey(it) === itemGroupKey);
+      const combinedOverrides = Object.assign({}, ...similarItems.map(it => it.classLossOverrides || {}));
+      const consolidation = calcEng.consolidateGroupClasses ? calcEng.consolidateGroupClasses(similarItems, cat, groupParams, combinedOverrides) : {};
       const cInfo = consolidation[classKey];
 
       if (cInfo) {
@@ -1123,11 +1765,8 @@ function renderItemsList() {
               <div class="form-group mb-0">
                 <label class="form-label text-xs font-semibold mb-1">Zipper Type <span class="text-rose-500">*</span></label>
                 <select class="form-select form-select-sm input-item-type input-var-type" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}">
-                  <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
                   <option value="open_end" ${type === 'open_end' ? 'selected' : ''}>Open End</option>
-                  <option value="two_way" ${type === 'two_way' ? 'selected' : ''}>Two-Way Open</option>
-                  ${cat === 'cz' ? `<option value="invisible" ${type === 'invisible' ? 'selected' : ''}>Invisible</option>` : ''}
-                  <option value="continuous" ${type === 'continuous' ? 'selected' : ''}>Continuous Chain</option>
+                  <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
                 </select>
               </div>
             ` : `
@@ -1137,15 +1776,12 @@ function renderItemsList() {
               </div>
             `}
 
-            <!-- Finished Length & Unit -->
+            <!-- Finished Length -->
             <div class="form-group mb-0">
               <label class="form-label text-xs font-semibold mb-1">Finished Length <span class="text-rose-500">*</span></label>
-              <div class="input-with-addon-right">
+              <div class="input-with-addon">
                 <input type="number" class="form-input form-input-sm font-mono input-item-length input-var-length" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}" value="${item.length !== undefined && item.length !== null ? item.length : ''}" step="any" min="0" placeholder="0">
-                <select class="form-select form-select-sm input-addon-select input-item-unit input-var-unit" data-item-id="${item.id}" data-group-id="${item.id}" data-var-id="var_${item.id}">
-                  <option value="inch" ${unit === 'inch' ? 'selected' : ''}>Inch</option>
-                  <option value="cm" ${unit === 'cm' ? 'selected' : ''}>cm</option>
-                </select>
+                <span class="input-addon input-addon-right text-xs item-unit-addon-label cursor-pointer hover:bg-slate-200" data-item-id="${item.id}" title="Click to toggle between inch and cm">${unit === 'cm' ? 'cm' : 'inch'}</span>
               </div>
             </div>
 
@@ -1171,10 +1807,10 @@ function renderItemsList() {
               </div>
             `}
 
-            <!-- Loss % Column -->
+            <!-- Tape loss rate Column -->
             <div class="form-group mb-0 variant-loss-col" id="var-loss-col-${item.id}">
               <label class="form-label text-xs font-semibold mb-1 flex items-center justify-between" for="input-item-loss-${item.id}">
-                <span>Loss %</span>
+                <span>Tape loss rate</span>
                 <span class="badge ${isEligible ? 'badge-primary' : 'badge-secondary'} text-3xs font-bold font-mono var-class-badge" title="${classKey ? `Zipper Class: ${classKey}` : '—'}">${escapeHtml(classKey || '—')}</span>
               </label>
               <div class="input-with-addon">
@@ -1190,6 +1826,357 @@ function renderItemsList() {
       </div>
     `;
   }).join('');
+}
+
+// ==================== CUSTOM PARAMETER PRESETS CONTROLLER ====================
+
+/**
+ * Update the custom parameter preset dropdown for the active item's variant & unit
+ */
+function updatePresetDropdown() {
+  const select = document.getElementById('select-param-preset');
+  if (!select) return;
+
+  const activeItem = getActiveItem();
+  if (!activeItem) {
+    select.innerHTML = '<option value="__standard__">Standard Parameters</option>';
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  const storageMgr = (typeof window !== 'undefined' && window.StorageManager) ? window.StorageManager : null;
+  const vKey = activeItem.variantKey || 'cz_5';
+  const unit = (String(activeItem.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const presets = storageMgr && storageMgr.getCustomPresets ? storageMgr.getCustomPresets(vKey, unit) : [];
+
+  let html = '<option value="__standard__">Standard Parameters</option>';
+  presets.forEach(p => {
+    html += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.displayName || p.name)}</option>`;
+  });
+
+  select.innerHTML = html;
+
+  if (activeItem.appliedPresetId && presets.some(p => p.id === activeItem.appliedPresetId)) {
+    select.value = activeItem.appliedPresetId;
+  } else {
+    select.value = '__standard__';
+  }
+}
+
+/**
+ * Check if the active item's current static parameters differ from standard baseline.
+ * Updates the disabled state and styling of "#btn-save-custom-params".
+ */
+function checkStaticParametersDirty() {
+  const btnSave = document.getElementById('btn-save-custom-params');
+  if (!btnSave) return;
+
+  const activeItem = getActiveItem();
+  if (!activeItem) {
+    btnSave.disabled = true;
+    btnSave.title = 'No item selected';
+    return;
+  }
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  if (!calcEng || !calcEng.getItemStaticParameters || !calcEng.isStaticParametersModified) {
+    btnSave.disabled = true;
+    return;
+  }
+
+  const currentParams = calcEng.getItemStaticParameters(activeItem);
+  const vKey = activeItem.variantKey || 'cz_5';
+  const unit = (String(activeItem.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const isModified = calcEng.isStaticParametersModified(vKey, unit, currentParams);
+
+  if (isModified) {
+    btnSave.disabled = false;
+    btnSave.title = 'Save your custom parameters as a reusable preset for ' + (activeItem.displayName || activeItem.name);
+  } else {
+    btnSave.disabled = true;
+    btnSave.title = 'Change any static parameter from standard values to save as preset';
+  }
+}
+
+/**
+ * Apply a set of static parameters to an item object
+ * @param {Object} item 
+ * @param {Object} params 
+ */
+function applyStaticParametersToItem(item, params = {}) {
+  if (!item || !params) return;
+  const cat = String(item.category || '').toLowerCase().trim();
+
+  if (cat === 'cz') {
+    item.czParams = Object.assign({}, item.czParams || {}, params);
+    if (params.chainAllowance !== undefined) item.allowance = Number(params.chainAllowance);
+    if (params.isSpecialUTopOrder !== undefined) item.isSpecialUTopOrder = Boolean(params.isSpecialUTopOrder);
+  } else if (cat === 'mz') {
+    item.mzParams = Object.assign({}, item.mzParams || {}, params);
+    if (params.chainAllowance !== undefined) item.allowance = Number(params.chainAllowance);
+    if (params.isSpecialUTopOrder !== undefined) item.isSpecialUTopOrder = Boolean(params.isSpecialUTopOrder);
+  } else if (cat === 'wire') {
+    item.wireParams = Object.assign({}, item.wireParams || {}, params);
+    if (params.wireAllowance !== undefined) item.allowance = Number(params.wireAllowance);
+  } else if (cat === 'pz') {
+    item.pzParams = Object.assign({}, item.pzParams || {}, params);
+    if (params.chainAllowance !== undefined) item.allowance = Number(params.chainAllowance);
+    if (params.isSpecialUTopOrder !== undefined) item.isSpecialUTopOrder = Boolean(params.isSpecialUTopOrder);
+  }
+
+  if (Array.isArray(item.variants) && item.variants[0]) {
+    if (item.allowance !== undefined) item.variants[0].allowance = item.allowance;
+  }
+}
+
+/**
+ * Handle preset dropdown change
+ */
+function handlePresetDropdownChange(e) {
+  const presetId = e.target.value;
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  if (presetId === '__standard__') {
+    loadStandardParametersForActiveItem();
+    return;
+  }
+
+  const storageMgr = (typeof window !== 'undefined' && window.StorageManager) ? window.StorageManager : null;
+  const allPresets = storageMgr && storageMgr.getAllCustomPresets ? storageMgr.getAllCustomPresets() : [];
+  const preset = allPresets.find(p => p.id === presetId);
+  if (!preset || !preset.parameters) return;
+
+  activeItem.appliedPresetId = preset.id;
+  applyStaticParametersToItem(activeItem, preset.parameters);
+
+  const activeGroupKey = getItemTypeGroupKey(activeItem);
+  const similarItems = (appState.currentEstimate.items || []).filter(it => getItemTypeGroupKey(it) === activeGroupKey);
+  similarItems.forEach(sim => {
+    sim.appliedPresetId = preset.id;
+    applyStaticParametersToItem(sim, preset.parameters);
+  });
+
+  renderSelectItemPanel();
+  syncStateItemsAndGroups();
+  updateLiveCalculations();
+  checkStaticParametersDirty();
+}
+
+/**
+ * Restore standard factory parameters for the active item and its group
+ */
+function loadStandardParametersForActiveItem() {
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  const vKey = activeItem.variantKey || 'cz_5';
+  const unit = (String(activeItem.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const std = calcEng && calcEng.getStandardStaticParameters ? calcEng.getStandardStaticParameters(vKey, unit) : {};
+
+  activeItem.appliedPresetId = null;
+
+  const cat = String(activeItem.category || '').toLowerCase().trim();
+  if (cat === 'cz') {
+    activeItem.czParams = {};
+    activeItem.isSpecialUTopOrder = false;
+  } else if (cat === 'mz') {
+    activeItem.mzParams = {};
+    activeItem.isSpecialUTopOrder = false;
+  } else if (cat === 'wire') {
+    activeItem.wireParams = {};
+  } else if (cat === 'pz') {
+    activeItem.pzParams = {};
+    activeItem.isSpecialUTopOrder = false;
+  }
+
+  if (window.BOMRules && window.BOMRules.getSuggestedAllowance) {
+    activeItem.allowance = window.BOMRules.getSuggestedAllowance(activeItem.category, activeItem.zipperSize, activeItem.lengthUnit, activeItem.zipperType);
+  } else if (std.chainAllowance !== undefined) {
+    activeItem.allowance = std.chainAllowance;
+  } else if (std.wireAllowance !== undefined) {
+    activeItem.allowance = std.wireAllowance;
+  }
+
+  if (Array.isArray(activeItem.variants) && activeItem.variants[0]) {
+    activeItem.variants[0].allowance = activeItem.allowance;
+  }
+
+  const activeGroupKey = getItemTypeGroupKey(activeItem);
+  const similarItems = (appState.currentEstimate.items || []).filter(it => getItemTypeGroupKey(it) === activeGroupKey);
+  similarItems.forEach(sim => {
+    sim.appliedPresetId = null;
+    sim.isSpecialUTopOrder = false;
+    if (sim.czParams) sim.czParams = {};
+    if (sim.mzParams) sim.mzParams = {};
+    if (sim.wireParams) sim.wireParams = {};
+    if (sim.pzParams) sim.pzParams = {};
+    sim.allowance = activeItem.allowance;
+    if (Array.isArray(sim.variants) && sim.variants[0]) {
+      sim.variants[0].allowance = activeItem.allowance;
+    }
+  });
+
+  renderSelectItemPanel();
+  syncStateItemsAndGroups();
+  updateLiveCalculations();
+  updatePresetDropdown();
+  checkStaticParametersDirty();
+}
+
+/**
+ * Open Save Custom Preset Modal
+ */
+function openSavePresetModal() {
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  const modal = document.getElementById('modal-save-custom-preset');
+  if (!modal) return;
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  const storageMgr = (typeof window !== 'undefined' && window.StorageManager) ? window.StorageManager : null;
+  const vKey = activeItem.variantKey || 'cz_5';
+  const unit = (String(activeItem.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+  const existing = storageMgr && storageMgr.getCustomPresets ? storageMgr.getCustomPresets(vKey, unit) : [];
+
+  const targetBadge = document.getElementById('save-preset-target-badge');
+  if (targetBadge) {
+    const vDef = (typeof getVariantDef === 'function') ? getVariantDef(vKey) : null;
+    const vName = vDef ? vDef.displayName : vKey.toUpperCase();
+    targetBadge.textContent = `${vName} (${unit})`;
+  }
+
+  const defaultName = `custom-${existing.length + 1}`;
+  const inputName = document.getElementById('input-preset-name');
+  if (inputName) {
+    inputName.value = defaultName;
+  }
+
+  const previewName = document.getElementById('preset-name-preview');
+  const updatePreview = () => {
+    if (!previewName) return;
+    const catTag = (storageMgr && storageMgr.formatCategorySizeTag) ? storageMgr.formatCategorySizeTag(vKey) : vKey;
+    const val = (inputName && inputName.value.trim()) || defaultName;
+    previewName.textContent = `${val} (${catTag}, ${unit})`;
+  };
+  updatePreview();
+  if (inputName) {
+    inputName.oninput = updatePreview;
+  }
+
+  const diffList = document.getElementById('save-preset-diff-list');
+  if (diffList && calcEng) {
+    const std = calcEng.getStandardStaticParameters(vKey, unit);
+    const cur = calcEng.getItemStaticParameters(activeItem);
+    const paramLabels = {
+      chainAllowance: 'Chain Allowance',
+      wireAllowance: 'Wire Allowance',
+      tapeDivisor: 'Tape Divisor',
+      teethWireDivisor: 'Teeth Wire Divisor',
+      teethWireLossFactor: 'Teeth Loss Factor',
+      topStopFactor: 'Top Stop Factor',
+      topStopDivisor: 'Top Stop Divisor',
+      bottomStopFactor: 'Bottom Stop Factor',
+      bottomStopDivisor: 'Bottom Stop Divisor',
+      resinDivisor: 'Resin Divisor',
+      tollilon1Divisor: 'Tollilon 1 Divisor',
+      tollilon2Divisor: 'Tollilon 2 Divisor',
+      inchWireDivisor: 'Inch Wire Divisor',
+      cmWireDivisor: 'CM Wire Divisor',
+      wireDivisor: 'Wire Divisor',
+      tapeAdditionalPercent: 'Tape Add %',
+      tapeFactor: 'PZ Tape Factor',
+      isSpecialUTopOrder: 'Special U-Top (1 pc)'
+    };
+
+    let diffHtml = '';
+    let changeCount = 0;
+    Object.keys(std).forEach(key => {
+      const stdVal = std[key];
+      const curVal = cur[key];
+      let isDifferent = false;
+      if (typeof stdVal === 'boolean') {
+        isDifferent = Boolean(curVal) !== Boolean(stdVal);
+      } else {
+        isDifferent = curVal !== undefined && Math.abs(Number(curVal) - Number(stdVal)) > 0.0001;
+      }
+
+      if (isDifferent) {
+        changeCount++;
+        const label = paramLabels[key] || key;
+        const stdDisplay = typeof stdVal === 'boolean' ? (stdVal ? 'Yes' : 'No') : stdVal;
+        const curDisplay = typeof curVal === 'boolean' ? (curVal ? 'Yes' : 'No') : curVal;
+        diffHtml += `
+          <div class="diff-list-item">
+            <span class="diff-param-name">${escapeHtml(label)}</span>
+            <div class="diff-values">
+              <span class="diff-standard-val">${escapeHtml(String(stdDisplay))}</span>
+              <span class="diff-arrow">→</span>
+              <span class="diff-custom-val">${escapeHtml(String(curDisplay))}</span>
+            </div>
+          </div>
+        `;
+      }
+    });
+
+    if (changeCount === 0) {
+      diffHtml = '<div class="text-slate-400 p-2 text-center">No static parameters changed from standard values.</div>';
+    }
+    diffList.innerHTML = diffHtml;
+  }
+
+  modal.classList.add('active');
+  modal.style.display = 'flex';
+  if (inputName) {
+    setTimeout(() => { inputName.focus(); inputName.select(); }, 50);
+  }
+}
+
+/**
+ * Close Save Custom Preset Modal
+ */
+function closeSavePresetModal() {
+  const modal = document.getElementById('modal-save-custom-preset');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+}
+
+/**
+ * Handle Save Custom Preset Form Submission
+ */
+function handleSavePresetSubmit(e) {
+  e.preventDefault();
+  const activeItem = getActiveItem();
+  if (!activeItem) return;
+
+  const inputName = document.getElementById('input-preset-name');
+  const nameVal = inputName ? inputName.value.trim() : '';
+  if (!nameVal) return;
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  const storageMgr = (typeof window !== 'undefined' && window.StorageManager) ? window.StorageManager : null;
+  if (!calcEng || !storageMgr) return;
+
+  const currentStatic = calcEng.getItemStaticParameters(activeItem);
+  const vKey = activeItem.variantKey || 'cz_5';
+  const unit = (String(activeItem.lengthUnit || 'inch').toLowerCase().trim() === 'cm') ? 'cm' : 'inch';
+
+  const saved = storageMgr.saveCustomPreset({
+    name: nameVal,
+    variantKey: vKey,
+    lengthUnit: unit,
+    parameters: currentStatic
+  });
+
+  activeItem.appliedPresetId = saved.id;
+  closeSavePresetModal();
+  updatePresetDropdown();
+  checkStaticParametersDirty();
 }
 
 /**
@@ -1209,6 +2196,8 @@ function renderSelectItemPanel() {
         <p class="text-xs text-muted">Select an item on the left or click <strong>+ Add New Item</strong> to configure its parameters.</p>
       </div>
     `;
+    updatePresetDropdown();
+    checkStaticParametersDirty();
     return;
   }
 
@@ -1216,11 +2205,32 @@ function renderSelectItemPanel() {
     badgeWrap.innerHTML = `<span class="badge badge-primary font-mono font-bold text-xs px-2.5 py-1">${escapeHtml(activeItem.displayName || activeItem.name)}</span>`;
   }
 
+  // Find the category group matching this active item
+  const matchedGroup = (appState.currentEstimate && Array.isArray(appState.currentEstimate.categoryGroups))
+    ? appState.currentEstimate.categoryGroups.find(g => (g.variants && g.variants.some(v => v.id === activeItem.id || v.itemId === activeItem.id)) || g.id === activeItem.id)
+    : null;
+
+  const configTarget = matchedGroup ? {
+    ...matchedGroup,
+    ...activeItem,
+    czParams: { ...(matchedGroup.czParams || {}), ...(activeItem.czParams || {}) },
+    mzParams: { ...(matchedGroup.mzParams || {}), ...(activeItem.mzParams || {}) },
+    wireParams: { ...(matchedGroup.wireParams || {}), ...(activeItem.wireParams || {}) },
+    pzParams: { ...(matchedGroup.pzParams || {}), ...(activeItem.pzParams || {}) },
+    id: activeItem.id,
+    groupId: matchedGroup.id,
+    variants: (activeItem.variants && activeItem.variants.length > 0) ? activeItem.variants : matchedGroup.variants
+  } : activeItem;
+
   // Render the configuration HTML for activeItem
-  body.innerHTML = buildCategoryGroupHTML(activeItem, 0, 1);
+  body.innerHTML = buildCategoryGroupHTML(configTarget, 0, 1);
 
   // Attach live listeners for the configuration inputs
   bindCategoryGroupEventListeners();
+
+  // Update preset dropdown and dirty check status in header
+  updatePresetDropdown();
+  checkStaticParametersDirty();
 }
 
 /**
@@ -1378,7 +2388,20 @@ function buildClassLossSectionHTML(group) {
  * @param {string} groupId 
  */
 function updateClassLossDisplay(groupId) {
-  const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+  // Sync state first to ensure items and categoryGroups are matched
+  if (typeof syncStateItemsAndGroups === 'function') {
+    syncStateItemsAndGroups();
+  }
+
+  let group = (appState.currentEstimate && Array.isArray(appState.currentEstimate.categoryGroups))
+    ? appState.currentEstimate.categoryGroups.find(g => g.id === groupId || (g.variants && g.variants.some(v => v.id === groupId || v.itemId === groupId)))
+    : null;
+  const item = (appState.currentEstimate && Array.isArray(appState.currentEstimate.items))
+    ? appState.currentEstimate.items.find(it => it.id === groupId)
+    : null;
+  if (!group && item) {
+    group = (appState.currentEstimate.categoryGroups || []).find(g => g.id === item.id || (g.variants && g.variants.some(v => v.id === item.id || v.itemId === item.id)));
+  }
   if (!group) return;
 
   const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
@@ -1392,14 +2415,25 @@ function updateClassLossDisplay(groupId) {
     const cInfo = consolidation[classKey];
     if (!cInfo) return;
 
-    const col = document.getElementById(`var-loss-col-${v.id}`);
-    if (col) {
-      const sharedCount = cInfo.variantCount || (cInfo.variants && cInfo.variants.length) || 1;
-      const isShared = sharedCount > 1;
-      const varMtr = calcEng.calculateVariantBaseChainMtr ? calcEng.calculateVariantBaseChainMtr(v, group.category, groupParams) : 0;
-      const classMtr = cInfo.baseChainMtr || 0;
-      const consumptionDisplay = Math.round(classMtr).toLocaleString('en-US');
+    const cleanId = String(v.id || '').replace(/^var_/, '');
+    const col = document.getElementById(`var-loss-col-${cleanId}`)
+      || document.getElementById(`var-loss-col-${v.id}`)
+      || document.getElementById(`var-loss-col-${group.id}`);
 
+    const sharedCount = cInfo.variantCount || (cInfo.variants && cInfo.variants.length) || 1;
+    const isShared = sharedCount > 1;
+    const varMtr = calcEng.calculateVariantBaseChainMtr ? calcEng.calculateVariantBaseChainMtr(v, group.category, groupParams) : 0;
+    const classMtr = cInfo.baseChainMtr || 0;
+    const consumptionDisplay = Math.round(classMtr).toLocaleString('en-US');
+
+    let lossDisplayVal = '';
+    if (cInfo.isOverridden && cInfo.overrideVal !== null) {
+      lossDisplayVal = cInfo.overrideVal;
+    } else if (cInfo.isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+      lossDisplayVal = cInfo.defaultLossPercent;
+    }
+
+    if (col) {
       const badge = col.querySelector('.var-class-badge');
       if (badge) {
         badge.textContent = `${classKey || '—'}`;
@@ -1423,7 +2457,7 @@ function updateClassLossDisplay(groupId) {
           metaContainer.innerHTML = `
             <div class="flex items-center justify-between text-slate-600">
               <span class="var-loss-mtr-text" title="Pre-loss Base Chain for ${classKey} (${classMtr.toFixed(2)} Mtr)">
-                <strong class="var-loss-pool-val font-bold">${consumptionDisplay} Mtr</strong>
+                Base Chain: <strong class="var-loss-pool-val font-bold">${consumptionDisplay} Mtr</strong>
               </span>
               ${cInfo.isOverridden ? `<span class="var-loss-status-tag badge badge-warning text-3xs" style="padding: 1px 4px;">Custom</span>` : ''}
             </div>
@@ -1431,6 +2465,10 @@ function updateClassLossDisplay(groupId) {
         }
       } else {
         // Fallback if metaContainer doesn't exist (e.g. simplified test mock DOM)
+        const poolVal = col.querySelector('.var-loss-pool-val');
+        if (poolVal) {
+          poolVal.textContent = isShared ? `${consumptionDisplay}m` : `${consumptionDisplay} Mtr`;
+        }
         const mtrText = col.querySelector('.var-loss-mtr-text');
         if (mtrText) {
           mtrText.textContent = isShared ? `Total: ${consumptionDisplay}m` : `${consumptionDisplay} Mtr`;
@@ -1448,19 +2486,43 @@ function updateClassLossDisplay(groupId) {
         }
       }
 
-      const input = col.querySelector('.input-var-loss');
+      const input = col.querySelector('.input-var-loss') || col.querySelector('.input-item-loss');
       if (input) {
         input.setAttribute('data-class', classKey);
         input.title = isShared ? `Shared ${classKey} pool: ${consumptionDisplay} Mtr across ${sharedCount} variants.` : (cInfo.isEligible ? `${classKey} total: ${consumptionDisplay} Mtr` : '');
         if (document.activeElement !== input) {
-          let lossDisplayVal = '';
-          if (cInfo.isOverridden && cInfo.overrideVal !== null) {
-            lossDisplayVal = cInfo.overrideVal;
-          } else if (cInfo.isEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
-            lossDisplayVal = cInfo.defaultLossPercent;
-          }
           input.value = lossDisplayVal !== '' ? lossDisplayVal : '';
         }
+      }
+    }
+
+    // Also update Select Item panel's Tape loss rate input & badges if present
+    const panelTapeInput = document.getElementById(`input-tape-loss-${group.id}`) || document.getElementById(`input-tape-loss-${cleanId}`);
+    if (panelTapeInput) {
+      panelTapeInput.setAttribute('data-class', classKey);
+      if (document.activeElement !== panelTapeInput) {
+        panelTapeInput.value = lossDisplayVal !== '' ? lossDisplayVal : '';
+      }
+    }
+    const panelTapeBadge = document.getElementById(`badge-tape-loss-class-${group.id}`) || document.getElementById(`badge-tape-loss-class-${cleanId}`);
+    if (panelTapeBadge) {
+      panelTapeBadge.textContent = classKey || '—';
+      panelTapeBadge.className = `badge ${cInfo.isEligible ? 'badge-primary' : 'badge-secondary'} text-3xs font-bold font-mono`;
+    }
+    const panelTapePreview = document.getElementById(`preview-tape-loss-${group.id}`) || document.getElementById(`preview-tape-loss-${cleanId}`);
+    if (panelTapePreview) {
+      const textSpan = panelTapePreview.querySelector('.preview-text');
+      const effLoss = cInfo.effectiveLossPercent !== null && cInfo.effectiveLossPercent !== undefined ? `${cInfo.effectiveLossPercent}%` : '—';
+      if (textSpan) textSpan.textContent = `Tape: ${consumptionDisplay} Mtr → ${effLoss}`;
+    }
+
+    // Sync model state lossPercent
+    if (lossDisplayVal !== '') {
+      const numericLoss = Number(lossDisplayVal);
+      group.lossPercent = numericLoss;
+      const matchedItem = (appState.currentEstimate.items || []).find(it => it.id === group.id || it.id === cleanId);
+      if (matchedItem) {
+        matchedItem.lossPercent = numericLoss;
       }
     }
   });
@@ -1480,36 +2542,185 @@ function getCategoryParamPreviewData(group) {
   const lastCalc = (typeof appState !== 'undefined' && appState && appState.lastCalculation) ? appState.lastCalculation : null;
   let groupResult = null;
   if (lastCalc && Array.isArray(lastCalc.categoryGroups)) {
-    groupResult = lastCalc.categoryGroups.find(g => g.id === group.id);
+    groupResult = lastCalc.categoryGroups.find(g => 
+      g.id === group.id || 
+      (group.itemId && g.id === group.itemId) || 
+      (g.variants && g.variants.some(v => v.id === group.id || v.itemId === group.id || (group.itemId && (v.id === group.itemId || v.itemId === group.itemId)))) ||
+      (g.id && group.id && (g.id.replace('var_', '') === group.id.replace('var_', '') || g.id.replace('item_', '') === group.id.replace('item_', '')))
+    );
+    if (!groupResult && lastCalc.categoryGroups.length === 1) {
+      groupResult = lastCalc.categoryGroups[0];
+    }
   }
+
   const calc = (groupResult && groupResult.calculation) ? groupResult.calculation : null;
+  const primary = (calc && calc.primaryResult) ? calc.primaryResult : (calc || {});
   const processedRows = (groupResult && groupResult.materials && Array.isArray(groupResult.materials.processedRows))
     ? groupResult.materials.processedRows
-    : [];
+    : ((lastCalc && lastCalc.aggregatedMaterials && Array.isArray(lastCalc.aggregatedMaterials.processedRows))
+        ? lastCalc.aggregatedMaterials.processedRows.filter(r => r.groupId === group.id || r.sourceGroupId === group.id)
+        : []);
 
-  const groupVariants = group.variants || [];
-  const hasOpenEnd = groupVariants.some(v => v.zipperType === 'open_end');
-  const cat = group.category || '';
+  const getMatQty = (predicate) => {
+    const row = processedRows.find(predicate);
+    if (!row) return null;
+    if (row.totalQuantity !== undefined && row.totalQuantity !== null && !isNaN(row.totalQuantity)) {
+      return Number(row.totalQuantity);
+    }
+    if (row.requiredQuantity !== undefined && row.requiredQuantity !== null && !isNaN(row.requiredQuantity)) {
+      return Number(row.requiredQuantity);
+    }
+    if (row.finalQuantity !== undefined && row.finalQuantity !== null && !isNaN(row.finalQuantity)) {
+      return Number(row.finalQuantity);
+    }
+    return null;
+  };
 
-  // 1. Slider preview
-  let sliderText = '—';
-  if (calc && calc.sliderQuantity !== undefined) {
-    sliderText = `Slider: ${Math.ceil(calc.sliderQuantity).toLocaleString('en-US')} Pcs`;
+  if (Array.isArray(group.variants) && group.variants.length === 1) {
+    if (group.quantity !== undefined && group.quantity !== null) {
+      group.variants[0].quantity = group.quantity;
+    }
+    if (group.length !== undefined && group.length !== null) {
+      group.variants[0].length = group.length;
+    }
+    if (group.lengthUnit) {
+      group.variants[0].lengthUnit = group.lengthUnit;
+    }
+    if (group.zipperType || group.endType || group.type) {
+      group.variants[0].zipperType = group.zipperType || group.endType || group.type;
+    }
+    if (group.zipperSize) {
+      group.variants[0].zipperSize = group.zipperSize;
+    }
   }
 
-  // 2. Pin Box preview
+  const groupVariants = (Array.isArray(group.variants) && group.variants.length > 0)
+    ? group.variants
+    : [{
+        quantity: group.quantity !== undefined && group.quantity !== null ? group.quantity : 0,
+        length: group.length !== undefined && group.length !== null ? group.length : 7.5,
+        lengthUnit: group.lengthUnit || 'inch',
+        zipperSize: group.zipperSize || '#5',
+        zipperType: group.zipperType || group.endType || group.type || 'closed_end'
+      }];
+  const hasOpenEnd = groupVariants.some(v => {
+    const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+    return t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way';
+  });
+  const cat = group.category || '';
+  const isMz = (cat === 'mz' || cat === 'metal');
+
+  // 0. Tape loss rate preview
+  let tapeLossText = '—';
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  if (calcEng && calcEng.consolidateGroupClasses && groupVariants.length > 0) {
+    const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+    const consolidation = calcEng.consolidateGroupClasses(groupVariants, cat, groupParams, group.classLossOverrides);
+    const entries = Object.entries(consolidation);
+    if (entries.length > 0) {
+      const [classKey, cInfo] = entries[0];
+      const mtrDisplay = Math.round(cInfo.baseChainMtr || 0).toLocaleString('en-US');
+      const effLoss = cInfo.effectiveLossPercent !== null && cInfo.effectiveLossPercent !== undefined ? `${cInfo.effectiveLossPercent}%` : '—';
+      tapeLossText = `Tape: ${mtrDisplay} Mtr → ${effLoss}`;
+    }
+  } else if (group.lossPercent !== undefined && group.lossPercent !== null) {
+    tapeLossText = `Tape Loss: ${group.lossPercent}%`;
+  }
+
+  // 1. Slider preview
+  let sliderQty = getMatQty(r => r.componentCategory === 'slider' || (r.component && r.component.includes('SLIDER')) || (r.key && r.key.includes('slider')));
+  if (sliderQty === null) {
+    if (calc && calc.sliderQuantity !== undefined) sliderQty = calc.sliderQuantity;
+    else if (primary && primary.sliderQuantity !== undefined) sliderQty = primary.sliderQuantity;
+    else if (primary && primary.sliderPcs !== undefined) sliderQty = primary.sliderPcs;
+  }
+  let sliderText = '—';
+  if (sliderQty !== null && sliderQty !== undefined) {
+    sliderText = `Slider: ${Math.ceil(sliderQty).toLocaleString('en-US')} Pcs`;
+  }
+
+  // 2. Pin Box preview (Exclusive to MZ Open-End)
   let pinBoxText = '—';
-  const pinBoxRow = processedRows.find(r => r.component === 'PIN BOX');
-  if (pinBoxRow && pinBoxRow.totalQuantity > 0) {
-    pinBoxText = `Pin Box: ${Math.round(pinBoxRow.totalQuantity).toLocaleString('en-US')} Pcs`;
-  } else if (!hasOpenEnd) {
-    pinBoxText = 'Pin Box: 0 Pcs (Closed End)';
-  } else if (calc && calc.pinBoxQuantity !== undefined) {
-    pinBoxText = `Pin Box: ${Math.round(calc.pinBoxQuantity).toLocaleString('en-US')} Pcs`;
+  if (isMz && hasOpenEnd) {
+    let pinBoxQty = getMatQty(r => r.component === 'PIN BOX' || (r.key && r.key.includes('pin_box')));
+    if (pinBoxQty === null && calc && calc.pinBoxQuantity !== undefined) {
+      pinBoxQty = calc.pinBoxQuantity;
+    }
+    if (pinBoxQty !== null && pinBoxQty > 0) {
+      pinBoxText = `Pin Box: ${Math.round(pinBoxQty).toLocaleString('en-US')} Pcs`;
+    } else {
+      const totalGroupQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+      const openQty = groupVariants.reduce((sum, v) => {
+        const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+        return (t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way')
+          ? sum + Math.max(0, Number(v.quantity) || 0) : sum;
+      }, 0);
+      if (openQty > 0) {
+        const lossPct = group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null
+          ? Number(group.pinBoxLossPercent)
+          : (calcEng && calcEng.getPinBoxDynamicLossPercentage ? calcEng.getPinBoxDynamicLossPercentage(totalGroupQty) : 8.0);
+        pinBoxText = `Pin Box: ${Math.round(openQty * (1 + lossPct / 100)).toLocaleString('en-US')} Pcs`;
+      }
+    }
+  }
+
+  // H-Bottom preview calculation (Universal for closed-end zippers in CZ, MZ, and PZ)
+  const hasClosedEnd = groupVariants.some(v => {
+    const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+    const isOpen = (t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way');
+    return !isOpen;
+  });
+  const isZipperCat = (cat === 'cz' || cat === 'mz' || cat === 'pz' || cat === 'nylon' || cat === 'metal' || cat === 'plastic');
+  let hBottomText = '—';
+  if (isZipperCat && hasClosedEnd) {
+    const totalGroupQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+    const hBottomRow = processedRows.find(r => r.component === 'H-BOTTOM' || (r.key && r.key.includes('h_bottom')));
+    let hBottomQty = hBottomRow ? hBottomRow.totalQuantity : (primary?.hBottomPcs ?? primary?.hBottomQuantity ?? calc?.hBottomPcs ?? calc?.hBottomQuantity ?? 0);
+    if (!hBottomQty || hBottomQty === 0) {
+      const closedQty = groupVariants.reduce((sum, v) => {
+        const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+        const isOpen = (t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way');
+        return !isOpen ? sum + Math.max(0, Number(v.quantity) || 0) : sum;
+      }, 0);
+      if (closedQty > 0) {
+        const loss = (group.hBottomLossPercent !== undefined && group.hBottomLossPercent !== null)
+          ? Number(group.hBottomLossPercent)
+          : (calcEng && calcEng.getHBottomDynamicLossPercentage ? calcEng.getHBottomDynamicLossPercentage(totalGroupQty) : 8.0);
+        hBottomQty = closedQty * (1 + loss / 100);
+      }
+    }
+    if (hBottomQty > 0) {
+      hBottomText = `H-Bottom: ${Math.round(hBottomQty).toLocaleString('en-US')} Pcs`;
+    }
+  } else if (isZipperCat && !hasClosedEnd) {
+    hBottomText = '— (Closed-End only)';
+  }
+
+  // U-Top preview calculation (Universal for all zipper categories CZ, MZ, PZ)
+  let uTopText = '—';
+  let uTopLossText = '—';
+  if (isZipperCat) {
+    const totalGroupQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+    const uLoss = (group.uTopLossPercent !== undefined && group.uTopLossPercent !== null)
+      ? Number(group.uTopLossPercent)
+      : (calcEng && calcEng.getUTopDynamicLossPercentage ? calcEng.getUTopDynamicLossPercentage(totalGroupQty) : 4.0);
+    uTopLossText = `${uLoss}%`;
+
+    const uTopRow = processedRows.find(r => r.component === 'U-TOP' || (r.key && r.key.includes('utop')));
+    let uTopVal = uTopRow ? uTopRow.totalQuantity : (primary?.uTopQty ?? primary?.uTopPcs ?? calc?.uTopQty ?? calc?.uTopPcs ?? null);
+    if (uTopVal === null || uTopVal === undefined) {
+      const isSpec = Boolean(group.isSpecialUTopOrder || (group.czParams && group.czParams.isSpecialUTopOrder) || (group.mzParams && group.mzParams.isSpecialUTopOrder) || (group.pzParams && group.pzParams.isSpecialUTopOrder));
+      const mult = isSpec ? 1 : 2;
+      uTopVal = totalGroupQty * mult * (1 + uLoss / 100);
+    }
+    if (uTopVal !== null && uTopVal !== undefined) {
+      uTopText = `U-Top: ${Math.round(uTopVal).toLocaleString('en-US')} Pcs`;
+    }
   }
 
   // Previews mapping
   const previews = {
+    tapeLoss: tapeLossText,
     slider: sliderText,
     pinBox: pinBoxText,
     czAllowance: '—',
@@ -1519,51 +2730,104 @@ function getCategoryParamPreviewData(group) {
     czResin: '—',
     czTollilon1: '—',
     czTollilon2: '—',
-    czUTop: '—',
+    czUTop: uTopText,
+    czUTopLoss: uTopLossText,
+    czHBottom: hBottomText,
     mzTape: '—',
     mzTeeth: '—',
+    mzTeethLoss: '—',
     mzTop: '—',
-    mzHBottom: '—',
+    mzTopDiv: '—',
+    mzHBottom: hBottomText,
+    mzUTop: uTopText,
+    mzUTopLoss: uTopLossText,
+    hBottom: hBottomText,
+    uTop: uTopText,
+    uTopLoss: uTopLossText,
     wireAllowance: '—',
     wireDiv: '—',
     wire3Inch: '—',
     wire3Cm: '—',
     pzAllowance: '—',
     pzTape: '—',
-    pzResin: '—'
+    pzTapeAdd: '—',
+    pzResin: '—',
+    pzHBottom: hBottomText,
+    pzUTop: uTopText,
+    pzUTopLoss: uTopLossText
   };
 
-  if (calc) {
+  if (calc || groupResult) {
     if (cat === 'cz') {
-      const chainVal = calc.baseChainConsumptionMtr !== undefined ? calc.baseChainConsumptionMtr : (calc.chainConsumptionMtr || 0);
+      const chainVal = (calc && calc.baseChainConsumptionMtr !== undefined) ? calc.baseChainConsumptionMtr : (primary.baseChainConsumptionMtr !== undefined ? primary.baseChainConsumptionMtr : (calc && calc.chainConsumptionMtr || 0));
       previews.czAllowance = `Base Chain: ${chainVal.toFixed(2)} Mtr`;
-      previews.czTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
-      previews.czTop = `Top Stop: ${(calc.topStopKg || 0).toFixed(2)} KG`;
-      previews.czBottom = `Bottom Stop: ${(calc.bottomStopKg || 0).toFixed(2)} KG`;
-      previews.czResin = `Resin: ${(calc.resinKg || 0).toFixed(2)} KG`;
-      previews.czTollilon1 = `Tollilon #1: ${(calc.tollilonOne || 0).toFixed(2)} U`;
-      previews.czTollilon2 = `Tollilon #2: ${(calc.tollilonTwo || 0).toFixed(2)} U (${Math.round(calc.totalTollilon || 0)} Total)`;
-      const uTopVal = calc.uTopQty !== undefined ? calc.uTopQty : (calc.uTopPcs || 0);
-      previews.czUTop = `U-Top: ${Math.round(uTopVal).toLocaleString('en-US')} Pcs`;
+      
+      const czTape = getMatQty(r => r.component === 'TAPE' || (r.key && r.key.includes('tape')) || (r.component && r.component.includes('TAPE'))) ?? calc?.totalTapeKg ?? primary?.totalTapeKg ?? 0;
+      previews.czTape = `Tape: ${czTape.toFixed(2)} KG`;
+
+      const czTop = getMatQty(r => (r.component && (r.component.includes('T/S') || r.component === 'TOP STOP')) || (r.key && r.key.includes('ts'))) ?? primary?.topStopKg ?? calc?.topStopKg ?? 0;
+      previews.czTop = `Top Stop: ${czTop.toFixed(2)} KG`;
+
+      const czBottom = getMatQty(r => (r.component && (r.component.includes('B/S') || r.component === 'BOTTOM STOP')) || (r.key && r.key.includes('bs'))) ?? primary?.bottomStopKg ?? calc?.bottomStopKg ?? 0;
+      previews.czBottom = `Bottom Stop: ${czBottom.toFixed(2)} KG`;
+
+      const czResin = getMatQty(r => (r.component && r.component.includes('RESIN')) || (r.key && r.key.includes('resin'))) ?? primary?.resinKg ?? calc?.resinKg ?? 0;
+      previews.czResin = `Resin: ${czResin.toFixed(2)} KG`;
+
+      const czT1 = primary?.tollilonOne !== undefined ? primary.tollilonOne : (calc?.tollilonOne || 0);
+      previews.czTollilon1 = `Tollilon #1: ${czT1.toFixed(2)} U`;
+
+      const czT2 = primary?.tollilonTwo !== undefined ? primary.tollilonTwo : (calc?.tollilonTwo || 0);
+      const czTotalT = getMatQty(r => (r.component && r.component.includes('TOLLILON')) || (r.key && r.key.includes('tollilon'))) ?? primary?.totalTollilon ?? calc?.totalTollilon ?? (czT1 + czT2);
+      previews.czTollilon2 = `Tollilon #2: ${czT2.toFixed(2)} U (${Math.round(czTotalT)} Total)`;
+
     } else if (cat === 'mz') {
-      previews.mzTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
-      previews.mzTeeth = `Teeth Wire: ${(calc.teethWireKg || 0).toFixed(2)} KG`;
-      previews.mzTop = `Top Stop: ${(calc.topStopKg || 0).toFixed(2)} KG`;
-      const hBottomRow = processedRows.find(r => r.component === 'H-BOTTOM');
-      const hBottomQty = hBottomRow ? hBottomRow.totalQuantity : (calc.hBottomQuantity || 0);
-      const hasMz3 = groupVariants.some(v => String(v.zipperSize || '').includes('3'));
-      previews.mzHBottom = hasMz3 ? `H-Bottom: ${Math.round(hBottomQty).toLocaleString('en-US')} Pcs` : `— (MZ#3 only)`;
+      const mzTape = getMatQty(r => r.component === 'TAPE' || (r.key && r.key.includes('tape')) || (r.component && r.component.includes('TAPE'))) ?? primary?.totalTapeKg ?? calc?.totalTapeKg ?? 0;
+      previews.mzTape = `Tape: ${mzTape.toFixed(2)} KG`;
+
+      const hasMz3 = groupVariants.some(v => String(v.zipperSize || '').includes('3')) || String(group.zipperSize || '').includes('3');
+      const mzTeeth = getMatQty(r => (r.component && (r.component.includes('WIRE') || r.component.includes('TEETH'))) || (r.key && r.key.includes('teeth'))) ?? primary?.teethWireKg ?? primary?.totalTeethWireKg ?? calc?.teethWireKg ?? 0;
+      const teethText = (hasMz3 || mzTeeth > 0) ? `Teeth Wire: ${mzTeeth.toFixed(2)} KG` : '— (MZ#3 only)';
+      previews.mzTeeth = teethText;
+      previews.mzTeethLoss = teethText;
+
+      const mzTop = getMatQty(r => (r.component && (r.component.includes('T/S') || r.component.includes('Top Stop'))) || (r.key && r.key.includes('ts'))) ?? primary?.topStopKg ?? calc?.topStopKg ?? 0;
+      previews.mzTop = `Top Stop: ${mzTop.toFixed(2)} KG`;
+      previews.mzTopDiv = `Top Stop: ${mzTop.toFixed(2)} KG`;
+      previews.mzHBottom = hBottomText;
+
+      const mzGroupParams = group.mzParams || {};
+      const baseChainMtr = groupVariants.reduce((sum, v) => sum + (calcEng && calcEng.calculateVariantBaseChainMtr ? calcEng.calculateVariantBaseChainMtr(v, 'mz', mzGroupParams) : 0), 0);
+      previews.mzAllowance = `Base Chain: ${baseChainMtr.toFixed(2)} Mtr`;
+
     } else if (cat === 'wire') {
-      const wireMtr = calc.totalReqMtr || 0;
+      const wireMtr = primary?.totalReqMtr ?? calc?.totalReqMtr ?? (getMatQty(r => r.unit === 'Mtr') || 0);
       previews.wireAllowance = `Req. Chain: ${wireMtr.toFixed(2)} Mtr`;
-      previews.wireDiv = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
-      previews.wire3Inch = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
-      previews.wire3Cm = `Teeth Wire: ${(calc.totalWireKg || 0).toFixed(2)} KG`;
+
+      const wireKg = getMatQty(r => r.unit === 'KG' && (r.componentCategory === 'wire' || (r.component && (r.component.includes('Wire') || r.component.includes('TEETH'))))) ?? primary?.totalWireKg ?? calc?.totalWireKg ?? 0;
+      previews.wireDiv = `Teeth Wire: ${wireKg.toFixed(2)} KG`;
+      previews.wire3Inch = `Teeth Wire: ${wireKg.toFixed(2)} KG`;
+      previews.wire3Cm = `Teeth Wire: ${wireKg.toFixed(2)} KG`;
+
     } else if (cat === 'pz') {
-      const chainVal = calc.baseChainConsumptionMtr !== undefined ? calc.baseChainConsumptionMtr : (calc.chainConsumptionMtr || 0);
+      const chainVal = (calc && calc.baseChainConsumptionMtr !== undefined) ? calc.baseChainConsumptionMtr : (primary?.baseChainConsumptionMtr !== undefined ? primary.baseChainConsumptionMtr : (getMatQty(r => r.unit === 'Mtr' || r.component === 'Chain Consumption') || 0));
       previews.pzAllowance = `Base Chain: ${chainVal.toFixed(2)} Mtr`;
-      previews.pzTape = `Tape: ${(calc.totalTapeKg || 0).toFixed(2)} KG`;
-      previews.pzResin = `Tape Wise: ${(calc.tapeResinKg || 0).toFixed(2)} KG`;
+
+      const pzTape = getMatQty(r => r.componentCategory === 'tape' || (r.component && r.component.includes('TAPE'))) ?? primary?.totalTapeKg ?? calc?.totalTapeKg ?? 0;
+      previews.pzTape = `Tape: ${pzTape.toFixed(2)} KG`;
+
+      const pzResin = getMatQty(r => r.componentCategory === 'resin' || (r.component && (r.component.includes('Tape Wise') || r.component.includes('Resin for PZ'))) || (r.key && (r.key.includes('tape_resin') || r.key.includes('tape_wise')))) ?? primary?.tapeBasedResinKg ?? calc?.tapeBasedResinKg ?? 0;
+      previews.pzTapeAdd = `Tape Resin: ${pzResin.toFixed(2)} KG`;
+      previews.pzResin = `Tape Resin: ${pzResin.toFixed(2)} KG`;
+    }
+
+    if (cat === 'cz' || cat === 'mz' || cat === 'pz') {
+      const uTopVal = getMatQty(r => r.component === 'U-TOP' || (r.key && r.key.includes('utop'))) ?? primary?.uTopQty ?? primary?.uTopPcs ?? calc?.uTopQty ?? calc?.uTopPcs ?? 0;
+      const uTopText = `U-Top: ${Math.round(uTopVal).toLocaleString('en-US')} Pcs`;
+      previews.czUTop = uTopText;
+      previews.mzUTop = uTopText;
+      previews.pzUTop = uTopText;
+      previews.uTop = uTopText;
     }
   }
 
@@ -1574,11 +2838,17 @@ function getCategoryParamPreviewData(group) {
  * Update all At-a-Glance BOM Parameter Previews across rendered category groups without DOM re-render
  */
 function updateCategoryParameterPreviews() {
-  const groups = (appState.currentEstimate && Array.isArray(appState.currentEstimate.categoryGroups))
+  const groups = (appState.currentEstimate && Array.isArray(appState.currentEstimate.categoryGroups) && appState.currentEstimate.categoryGroups.length > 0)
     ? appState.currentEstimate.categoryGroups
-    : [];
+    : ((appState.currentEstimate && Array.isArray(appState.currentEstimate.items)) ? appState.currentEstimate.items : []);
 
-  groups.forEach(group => {
+  const itemsToUpdate = [...groups];
+  const activeItem = (typeof getActiveItem === 'function') ? getActiveItem() : null;
+  if (activeItem && !itemsToUpdate.some(g => g.id === activeItem.id)) {
+    itemsToUpdate.push(activeItem);
+  }
+
+  itemsToUpdate.forEach(group => {
     const previews = getCategoryParamPreviewData(group);
     
     const updateEl = (id, text, isMuted = false) => {
@@ -1601,6 +2871,7 @@ function updateCategoryParameterPreviews() {
       }
     };
 
+    updateEl(`preview-tape-loss-${group.id}`, previews.tapeLoss);
     updateEl(`preview-slider-${group.id}`, previews.slider);
     updateEl(`preview-pin-box-${group.id}`, previews.pinBox, previews.pinBox.includes('Closed End') || previews.pinBox === '—');
     
@@ -1613,12 +2884,17 @@ function updateCategoryParameterPreviews() {
     updateEl(`preview-cz-tollilon1-${group.id}`, previews.czTollilon1);
     updateEl(`preview-cz-tollilon2-${group.id}`, previews.czTollilon2);
     updateEl(`preview-cz-utop-${group.id}`, previews.czUTop);
+    updateEl(`preview-cz-hbottom-${group.id}`, previews.czHBottom, previews.czHBottom.includes('Closed-End only') || previews.czHBottom === '—');
 
     // MZ
+    updateEl(`preview-mz-allowance-${group.id}`, previews.mzAllowance);
     updateEl(`preview-mz-tape-${group.id}`, previews.mzTape);
-    updateEl(`preview-mz-teeth-${group.id}`, previews.mzTeeth);
+    updateEl(`preview-mz-teeth-${group.id}`, previews.mzTeeth, previews.mzTeeth.includes('MZ#3 only'));
+    updateEl(`preview-mz-teeth-loss-${group.id}`, previews.mzTeethLoss, previews.mzTeethLoss.includes('MZ#3 only'));
     updateEl(`preview-mz-top-${group.id}`, previews.mzTop);
-    updateEl(`preview-mz-hbottom-${group.id}`, previews.mzHBottom, previews.mzHBottom.includes('MZ#3 only'));
+    updateEl(`preview-mz-top-div-${group.id}`, previews.mzTopDiv);
+    updateEl(`preview-mz-hbottom-${group.id}`, previews.mzHBottom, previews.mzHBottom.includes('Closed-End only') || previews.mzHBottom === '—');
+    updateEl(`preview-mz-utop-${group.id}`, previews.mzUTop);
 
     // WIRE
     updateEl(`preview-wire-allowance-${group.id}`, previews.wireAllowance);
@@ -1629,7 +2905,10 @@ function updateCategoryParameterPreviews() {
     // PZ
     updateEl(`preview-pz-allowance-${group.id}`, previews.pzAllowance);
     updateEl(`preview-pz-tape-${group.id}`, previews.pzTape);
+    updateEl(`preview-pz-tape-add-${group.id}`, previews.pzTapeAdd);
     updateEl(`preview-pz-resin-${group.id}`, previews.pzResin);
+    updateEl(`preview-pz-hbottom-${group.id}`, previews.pzHBottom, previews.pzHBottom.includes('Closed-End only') || previews.pzHBottom === '—');
+    updateEl(`preview-pz-utop-${group.id}`, previews.pzUTop);
   });
 }
 
@@ -1647,12 +2926,40 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
 
   const previews = getCategoryParamPreviewData(group);
 
+  // If group has direct item properties (independent Item model), ensure single variant is synced
+  if (Array.isArray(group.variants) && group.variants.length === 1) {
+    if (group.quantity !== undefined && group.quantity !== null) {
+      group.variants[0].quantity = group.quantity;
+    }
+    if (group.length !== undefined && group.length !== null) {
+      group.variants[0].length = group.length;
+    }
+    if (group.lengthUnit) {
+      group.variants[0].lengthUnit = group.lengthUnit;
+    }
+    if (group.zipperType || group.endType || group.type) {
+      group.variants[0].zipperType = group.zipperType || group.endType || group.type;
+    }
+    if (group.zipperSize) {
+      group.variants[0].zipperSize = group.zipperSize;
+    }
+    if (group.displayName || group.name) {
+      group.variants[0].name = group.displayName || group.name;
+    }
+    if (group.color !== undefined) {
+      group.variants[0].color = group.color;
+    }
+    if (group.remarks !== undefined) {
+      group.variants[0].remarks = group.remarks;
+    }
+  }
+
   const effectiveVariants = (Array.isArray(group.variants) && group.variants.length > 0)
     ? group.variants
     : [{
         id: `var_${group.id}`,
         zipperSize: group.zipperSize || (cat === 'wire' ? '#5_normal' : '#5'),
-        zipperType: group.zipperType || 'closed_end',
+        zipperType: group.zipperType || group.endType || group.type || 'closed_end',
         length: group.length !== undefined && group.length !== null ? group.length : 7.5,
         lengthUnit: group.lengthUnit || 'inch',
         quantity: group.quantity !== undefined && group.quantity !== null ? group.quantity : 1000
@@ -1665,9 +2972,12 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   const primaryMzSize = (hasMz5 && !hasMz3) ? '#5' : (hasMz3 && !hasMz5 ? '#3' : ((mzVariants.length > 0 && mzVariants[0].zipperSize && mzVariants[0].zipperSize.includes('5')) ? '#5' : '#3'));
   const mzSizeTitle = (hasMz5 && hasMz3) ? 'MZ#5 & MZ#3' : (hasMz3 && !hasMz5 ? 'MZ#3' : 'MZ#5');
   const mzParams = (group.mzParams && typeof group.mzParams === 'object') ? group.mzParams : {};
+  const primaryMzUnit = (mzVariants.length > 0 && mzVariants[0].lengthUnit === 'cm') ? 'cm' : 'inch';
+  const defaultMzAllowance = primaryMzSize === '#5'
+    ? (primaryMzUnit === 'cm' ? 5.0 : 1.97)
+    : (primaryMzUnit === 'cm' ? 4.5 : 1.78);
   const defaultMzTapeDivisor = primaryMzSize === '#5' ? 71 : 97;
   const defaultTopStopFactor = primaryMzSize === '#5' ? 0.32 : 0.22;
-  const isHBottomApplicable = (mzVariants.length > 0) ? hasMz3 : (primaryMzSize !== '#5');
 
   // CZ multi-variant detection
   const czParams = (group.czParams && typeof group.czParams === 'object') ? group.czParams : {};
@@ -1743,13 +3053,37 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   else if (cat === 'wire') { catBadge = 'WIRE (Metal Wire)'; catBadgeClass = 'badge-warning'; }
   else if (cat === 'pz') { catBadge = 'PZ (Plastic)'; catBadgeClass = 'badge-primary'; }
 
-  // Dynamic Slider & Pin Box Loss Percentages for this category group
-  const groupVariants = group.variants || [];
-  const groupTotalZipperQty = groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
-  const relevantPinBoxQty = (window.CalculatorEngine && window.CalculatorEngine.getRelevantPinBoxQuantity)
-    ? window.CalculatorEngine.getRelevantPinBoxQuantity(groupVariants)
+  // Dynamic Slider, Pin Box & H-Bottom Loss Percentages for this category group
+  const groupVariants = (Array.isArray(group.variants) && group.variants.length > 0)
+    ? group.variants
+    : effectiveVariants;
+  const groupTotalZipperQty = (group.quantity !== undefined && group.quantity !== null && (!group.variants || group.variants.length <= 1))
+    ? Math.max(0, Number(group.quantity) || 0)
+    : groupVariants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
+  const isMzCategory = (cat === 'mz' || cat === 'metal');
+  const groupHasOpenEnd = groupVariants.some(v => {
+    const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+    return t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way';
+  });
+  const groupHasClosedEnd = groupVariants.some(v => {
+    const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+    return t !== 'open_end' && t !== 'open-end' && t !== 'open ended' && t !== 'two_way';
+  });
+  const isHBottomApplicable = isZipperCategory && groupHasClosedEnd;
+
+  const relevantPinBoxQty = (isMzCategory && window.CalculatorEngine && window.CalculatorEngine.getRelevantPinBoxQuantity)
+    ? window.CalculatorEngine.getRelevantPinBoxQuantity(groupVariants, cat)
     : 0;
-  const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupTotalZipperQty;
+  const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : 1000;
+
+  const relevantClosedEndQty = (window.CalculatorEngine && window.CalculatorEngine.getRelevantHBottomQuantity)
+    ? window.CalculatorEngine.getRelevantHBottomQuantity(groupVariants, cat)
+    : groupVariants.reduce((sum, v) => {
+        const t = String((v && (v.zipperType || v.endType || v.type || v.zipperEndType)) || '').toLowerCase().trim();
+        const isOpen = (t === 'open_end' || t === 'open-end' || t === 'open ended' || t === 'two_way');
+        return sum + (!isOpen ? Math.max(0, Number(v.quantity) || 0) : 0);
+      }, 0);
+  const relevantHBottomScopeQty = relevantClosedEndQty > 0 ? relevantClosedEndQty : 1000;
 
   const getSliderDefault = (window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage))
     ? (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage)
@@ -1770,7 +3104,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
   }
 
   const defaultPinBoxLoss = (window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
-    ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty)
+    ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupTotalZipperQty)
     : 4.0;
   const effectivePinBoxLoss = (group.isPinBoxLossOverridden && group.pinBoxLossPercent !== undefined && group.pinBoxLossPercent !== null)
     ? group.pinBoxLossPercent
@@ -1778,32 +3112,66 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
       ? group.pinBoxLossPercent
       : defaultPinBoxLoss);
 
-  const mz3Variants = mzVariants.filter(v => {
-    const sz = String((v && v.zipperSize) || '').trim();
-    return sz.includes('3');
-  });
-
-  const mz3ZipperQty = mz3Variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
   const defaultHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
-    ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3ZipperQty)
+    ? window.CalculatorEngine.getHBottomDynamicLossPercentage(groupTotalZipperQty)
     : 4.0;
-  const currentHBottomParam = (group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
-    ? group.mzParams.hBottomLossPercent
-    : group.hBottomLossPercent;
+  const currentHBottomParam = (cat === 'cz' && group.czParams && group.czParams.hBottomLossPercent !== undefined && group.czParams.hBottomLossPercent !== null)
+    ? group.czParams.hBottomLossPercent
+    : ((cat === 'mz' && group.mzParams && group.mzParams.hBottomLossPercent !== undefined && group.mzParams.hBottomLossPercent !== null)
+      ? group.mzParams.hBottomLossPercent
+      : ((cat === 'pz' && group.pzParams && group.pzParams.hBottomLossPercent !== undefined && group.pzParams.hBottomLossPercent !== null)
+        ? group.pzParams.hBottomLossPercent
+        : group.hBottomLossPercent));
   const effectiveHBottomLoss = (group.isHBottomLossOverridden && currentHBottomParam !== undefined && currentHBottomParam !== null)
     ? currentHBottomParam
     : (currentHBottomParam !== undefined && currentHBottomParam !== null && currentHBottomParam !== 2.5
       ? currentHBottomParam
       : defaultHBottomLoss);
 
+  const defaultUTopLoss = (window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage)
+    ? window.CalculatorEngine.getUTopDynamicLossPercentage(groupTotalZipperQty)
+    : 4.0;
+  const currentUTopVal = (group.uTopLossPercent !== undefined && group.uTopLossPercent !== null)
+    ? group.uTopLossPercent
+    : null;
+  const effectiveUTopLoss = (group.isUTopLossOverridden && currentUTopVal !== null)
+    ? Number(currentUTopVal)
+    : (currentUTopVal !== null ? currentUTopVal : defaultUTopLoss);
+
   const vSize = (group.variants && group.variants[0] && group.variants[0].zipperSize) || group.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
   let currentVariantKey = group.variantKey || '';
   if (!currentVariantKey) {
     if (cat === 'cz') currentVariantKey = (vSize === '#3' ? 'cz_3' : 'cz_5');
-    else if (cat === 'mz') currentVariantKey = (vSize === '#3' ? 'mz_3' : (vSize === '#4' ? 'mz_4' : 'mz_5'));
+    else if (cat === 'mz') currentVariantKey = (vSize === '#3' ? 'mz_3' : 'mz_5');
     else if (cat === 'pz') currentVariantKey = (vSize === '#3' ? 'pz_3' : (vSize === '#8' ? 'pz_8' : 'pz_5'));
     else if (cat === 'wire') currentVariantKey = (vSize === '#3' ? 'wire_3' : (vSize === '#5_long' ? 'wire_5_long' : 'wire_5_normal'));
     else currentVariantKey = 'cz_5';
+  }
+
+  const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
+  let classKey = '';
+  let isClassEligible = false;
+  let lossDisplayVal = '';
+  let consumptionDisplay = '0';
+
+  if (calcEng && calcEng.getVariantZipperClass && effectiveVariants.length > 0) {
+    classKey = calcEng.getVariantZipperClass(effectiveVariants[0], cat);
+    isClassEligible = calcEng.isClassEligibleForDynamicLoss ? calcEng.isClassEligibleForDynamicLoss(classKey) : false;
+    const groupParams = group.czParams || group.mzParams || group.pzParams || group.wireParams || {};
+    const consolidation = calcEng.consolidateGroupClasses ? calcEng.consolidateGroupClasses(effectiveVariants, cat, groupParams, group.classLossOverrides) : {};
+    const cInfo = consolidation[classKey];
+    if (cInfo) {
+      if (cInfo.isOverridden && cInfo.overrideVal !== null) {
+        lossDisplayVal = cInfo.overrideVal;
+      } else if (isClassEligible && cInfo.defaultLossPercent !== null && cInfo.defaultLossPercent !== undefined) {
+        lossDisplayVal = cInfo.defaultLossPercent;
+      } else if (group.lossPercent !== undefined && group.lossPercent !== null) {
+        lossDisplayVal = group.lossPercent;
+      }
+      consumptionDisplay = Math.round(cInfo.baseChainMtr || 0).toLocaleString('en-US');
+    }
+  } else if (group.lossPercent !== undefined && group.lossPercent !== null) {
+    lossDisplayVal = group.lossPercent;
   }
 
   return `
@@ -1849,7 +3217,6 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
               <option value="cz_5" ${currentVariantKey === 'cz_5' ? 'selected' : ''}>CZ#5</option>
               <option value="cz_3" ${currentVariantKey === 'cz_3' ? 'selected' : ''}>CZ#3</option>
               <option value="mz_3" ${currentVariantKey === 'mz_3' ? 'selected' : ''}>MZ#3</option>
-              <option value="mz_4" ${currentVariantKey === 'mz_4' ? 'selected' : ''}>MZ#4</option>
               <option value="mz_5" ${currentVariantKey === 'mz_5' ? 'selected' : ''}>MZ#5</option>
               <option value="pz_3" ${currentVariantKey === 'pz_3' ? 'selected' : ''}>PZ#3</option>
               <option value="pz_5" ${currentVariantKey === 'pz_5' ? 'selected' : ''}>PZ#5</option>
@@ -1864,6 +3231,27 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
               <option value="pz" style="display:none;" ${cat === 'pz' && !currentVariantKey ? 'selected' : ''}>Plastic Zipper (PZ)</option>
             </select>
           </div>
+
+          <!-- 2. Tape Loss Rate Field -->
+          ${isLossApplicable ? `
+            <div class="category-control-item category-control-loss">
+              <label class="category-control-label" for="input-tape-loss-${group.id}" title="Tape Loss Rate Percentage">
+                <span>Tape loss rate</span>
+                <span class="badge ${isClassEligible ? 'badge-primary' : 'badge-secondary'} text-3xs font-bold font-mono" id="badge-tape-loss-class-${group.id}">${escapeHtml(classKey || '—')}</span>
+              </label>
+              <div class="input-with-addon category-addon-wrapper">
+                <input type="number" id="input-tape-loss-${group.id}" class="form-input font-mono input-group-tape-loss category-styled-input" 
+                  data-group-id="${group.id}" data-item-id="${group.id}" data-class="${escapeHtml(classKey)}"
+                  value="${lossDisplayVal}" 
+                  placeholder="${isClassEligible ? '0' : '—'}" 
+                  min="0" max="100" step="0.5">
+                <span class="input-addon input-addon-right category-addon-badge">%</span>
+              </div>
+              <div class="param-calc-preview" id="preview-tape-loss-${group.id}">
+                <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.tapeLoss || '—')}</span></span>
+              </div>
+            </div>
+          ` : ''}
 
           <!-- 2. Slider Add Percentage Field (Zipper categories only) -->
           ${isZipperCategory ? `
@@ -1882,8 +3270,10 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                 <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.slider)}</span></span>
               </div>
             </div>
+          ` : ''}
 
-            <!-- 3. Pin Box Loss Percentage Field (Zipper categories only) -->
+          <!-- 3. Pin Box Loss Percentage Field (Exclusive to Metal Zipper MZ & Open Ended) -->
+          ${(isMzCategory && groupHasOpenEnd) ? `
             <div class="category-control-item category-control-pin-box">
               <label class="category-control-label" for="input-pin-box-${group.id}" title="Pin Box Loss Allowance Percentage">
                 Pin Box Loss %
@@ -1896,7 +3286,7 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                 <span class="input-addon input-addon-right category-addon-badge">%</span>
               </div>
               <div class="param-calc-preview" id="preview-pin-box-${group.id}">
-                <span class="preview-badge ${previews.pinBox.includes('Closed End') || previews.pinBox === '—' ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pinBox)}</span></span>
+                <span class="preview-badge ${previews.pinBox === '—' ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pinBox)}</span></span>
               </div>
             </div>
           ` : ''}
@@ -2038,26 +3428,66 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                 </div>
               </div>
 
-              ${(primaryCzSize === '#5' || hasCz5) ? `
-                <!-- 8. Special U-Top Requirement (ROW 2 Item 3, spanning columns 3 to 5) -->
+                <!-- 8. Special U-Top Requirement -->
                 <div class="category-dynamic-param-item category-dynamic-param-utop-card">
                   <label class="category-control-label" for="cz-utop-special-${group.id}" title="When checked, customer requires 1 U-Top per zipper instead of standard 2 pcs">
-                    U-Top Requirement (CZ#5)
+                    U-Top Requirement (CZ)
                   </label>
                   <div class="utop-checkbox-inner-card">
-                    <label class="flex items-center gap-2" style="cursor: pointer; margin: 0; width: 100%;">
+                    <label class="flex items-center gap-2" style="cursor: pointer; margin: 0; width: 100%; color: #000000;">
                       <input type="checkbox" id="cz-utop-special-${group.id}" 
-                             class="input-cz-utop-special rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                             class="input-cz-utop-special input-utop-special rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
                              data-group-id="${group.id}" 
                              ${Boolean(group.isSpecialUTopOrder || (czParams && czParams.isSpecialUTopOrder)) ? 'checked' : ''}>
-                      <span class="text-xs text-slate-700 font-semibold">Special U-Top Requirement (1 pc per zipper)</span>
+                      <span class="utop-checkbox-label text-xs text-slate-700 font-semibold" style="color: #000000;">Special U-Top Requirement (1 pc per zipper)</span>
                     </label>
                   </div>
                   <div class="param-calc-preview" id="preview-cz-utop-${group.id}">
                     <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czUTop)}</span></span>
                   </div>
                 </div>
-              ` : ''}
+
+                <!-- 8b. U-Top Loss Addition -->
+                <div class="category-dynamic-param-item">
+                  <label class="category-control-label" for="cz-utop-loss-${group.id}" title="U-Top Stop Loss Addition Percentage for CZ">
+                    U-Top Loss %
+                  </label>
+                  <div class="input-with-addon category-addon-wrapper">
+                    <input type="number" id="cz-utop-loss-${group.id}" 
+                           class="form-input font-mono category-styled-input input-cz-param input-group-utop-loss" 
+                           data-group-id="${group.id}" 
+                           data-param="uTopLossPercent" 
+                           value="${effectiveUTopLoss}" 
+                           min="0" max="100" step="0.1">
+                    <span class="input-addon input-addon-right category-addon-badge text-xs">%</span>
+                  </div>
+                  <div class="param-calc-preview" id="preview-cz-utop-loss-${group.id}">
+                    <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czUTopLoss || (effectiveUTopLoss + '%'))}</span></span>
+                  </div>
+                </div>
+
+              <!-- 9. H-Bottom Stop Loss Addition -->
+              <div class="category-dynamic-param-item ${!isHBottomApplicable ? 'param-inactive' : ''}">
+                <label class="category-control-label" for="cz-hbottom-loss-${group.id}" title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for CZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}">
+                  H-Bottom Loss %
+                  ${!isHBottomApplicable ? '<span class="text-3xs text-slate-400 font-normal ml-1">(Closed-End only)</span>' : ''}
+                </label>
+                <div class="input-with-addon category-addon-wrapper">
+                  <input type="number" id="cz-hbottom-loss-${group.id}" 
+                         class="form-input font-mono category-styled-input input-cz-param input-group-hbottom-loss" 
+                         data-group-id="${group.id}" 
+                         data-param="hBottomLossPercent" 
+                         value="${isHBottomApplicable ? effectiveHBottomLoss : ''}" 
+                         placeholder="${isHBottomApplicable ? '0' : '—'}"
+                         ${!isHBottomApplicable ? 'disabled' : ''}
+                         title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for CZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}"
+                         min="0" max="100" step="0.1">
+                  <span class="input-addon input-addon-right category-addon-badge text-xs ${!isHBottomApplicable ? 'opacity-60 text-slate-400' : ''}">%</span>
+                </div>
+                <div class="param-calc-preview" id="preview-cz-hbottom-${group.id}">
+                  <span class="preview-badge ${!isHBottomApplicable ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.czHBottom)}</span></span>
+                </div>
+              </div>
             </div>
           </div>
         ` : ''}
@@ -2077,6 +3507,25 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
             </div>
 
             <div class="category-dynamic-params-grid">
+              <!-- 0. Chain Allowance -->
+              <div class="category-dynamic-param-item">
+                <label class="category-control-label" for="mz-allowance-${group.id}" title="Production Allowance for Chain Cutting">
+                  Chain Allowance
+                </label>
+                <div class="input-with-addon category-addon-wrapper">
+                  <input type="number" id="mz-allowance-${group.id}" 
+                         class="form-input font-mono category-styled-input input-mz-param" 
+                         data-group-id="${group.id}" 
+                         data-param="chainAllowance" 
+                         value="${mzParams.chainAllowance !== undefined ? mzParams.chainAllowance : defaultMzAllowance}" 
+                         min="0" max="100" step="0.01">
+                  <span class="input-addon input-addon-right category-addon-badge text-xs">${primaryMzUnit === 'cm' ? 'CM' : 'Inch'}</span>
+                </div>
+                <div class="param-calc-preview" id="preview-mz-allowance-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzAllowance || (defaultMzAllowance + (primaryMzUnit === 'cm' ? ' CM' : ' Inch')))}</span></span>
+                </div>
+              </div>
+
               <!-- 1. Tape Divisor -->
               <div class="category-dynamic-param-item">
                 <label class="category-control-label" for="mz-tape-div-${group.id}">
@@ -2123,6 +3572,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="teethWireLossFactor" 
                        value="${mzParams.teethWireLossFactor !== undefined ? mzParams.teethWireLossFactor : 1.04}" 
                        min="0.5" max="3.0" step="0.01">
+                <div class="param-calc-preview" id="preview-mz-teeth-loss-${group.id}">
+                  <span class="preview-badge ${!isHBottomApplicable && (!previews.mzTeethLoss || previews.mzTeethLoss.includes('MZ#3 only')) ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzTeethLoss)}</span></span>
+                </div>
               </div>
 
               <!-- 4. Top Stop Factor -->
@@ -2152,13 +3604,16 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        data-param="topStopDivisor" 
                        value="${mzParams.topStopDivisor !== undefined ? mzParams.topStopDivisor : 1000}" 
                        min="1" max="10000" step="1">
+                <div class="param-calc-preview" id="preview-mz-top-div-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzTopDiv)}</span></span>
+                </div>
               </div>
 
               <!-- 6. H-Bottom Stop Loss Addition -->
               <div class="category-dynamic-param-item ${!isHBottomApplicable ? 'param-inactive' : ''}">
-                <label class="category-control-label" for="mz-hbottom-loss-${group.id}" title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ#3' : 'H-Bottom Stop is applicable to MZ#3 only (inactive for MZ#5)'}">
+                <label class="category-control-label" for="mz-hbottom-loss-${group.id}" title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}">
                   H-Bottom Loss %
-                  ${!isHBottomApplicable ? '<span class="text-3xs text-slate-400 font-normal ml-1">(MZ#3 only)</span>' : ''}
+                  ${!isHBottomApplicable ? '<span class="text-3xs text-slate-400 font-normal ml-1">(Closed-End only)</span>' : ''}
                 </label>
                 <div class="input-with-addon category-addon-wrapper">
                   <input type="number" id="mz-hbottom-loss-${group.id}" 
@@ -2168,12 +3623,50 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          value="${isHBottomApplicable ? effectiveHBottomLoss : ''}" 
                          placeholder="${isHBottomApplicable ? '0' : '—'}"
                          ${!isHBottomApplicable ? 'disabled' : ''}
-                         title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ#3' : 'H-Bottom Stop is applicable to MZ#3 only (inactive for MZ#5)'}"
+                         title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for MZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}"
                          min="0" max="100" step="0.1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs ${!isHBottomApplicable ? 'opacity-60 text-slate-400' : ''}">%</span>
                 </div>
                 <div class="param-calc-preview" id="preview-mz-hbottom-${group.id}">
                   <span class="preview-badge ${!isHBottomApplicable ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzHBottom)}</span></span>
+                </div>
+              </div>
+
+              <!-- 7. Special U-Top Requirement -->
+              <div class="category-dynamic-param-item category-dynamic-param-utop-card">
+                <label class="category-control-label" for="mz-utop-special-${group.id}" title="When checked, customer requires 1 U-Top per zipper instead of standard 2 pcs">
+                  U-Top Requirement (MZ)
+                </label>
+                <div class="utop-checkbox-inner-card">
+                  <label class="flex items-center gap-2" style="cursor: pointer; margin: 0; width: 100%; color: #000000;">
+                    <input type="checkbox" id="mz-utop-special-${group.id}" 
+                           class="input-mz-utop-special input-utop-special rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                           data-group-id="${group.id}" 
+                           ${Boolean(group.isSpecialUTopOrder || (mzParams && mzParams.isSpecialUTopOrder)) ? 'checked' : ''}>
+                    <span class="utop-checkbox-label text-xs text-slate-700 font-semibold" style="color: #000000;">Special U-Top Requirement (1 pc per zipper)</span>
+                  </label>
+                </div>
+                <div class="param-calc-preview" id="preview-mz-utop-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzUTop)}</span></span>
+                </div>
+              </div>
+
+              <!-- 7b. U-Top Loss Addition -->
+              <div class="category-dynamic-param-item">
+                <label class="category-control-label" for="mz-utop-loss-${group.id}" title="U-Top Stop Loss Addition Percentage for MZ">
+                  U-Top Loss %
+                </label>
+                <div class="input-with-addon category-addon-wrapper">
+                  <input type="number" id="mz-utop-loss-${group.id}" 
+                         class="form-input font-mono category-styled-input input-mz-param input-group-utop-loss" 
+                         data-group-id="${group.id}" 
+                         data-param="uTopLossPercent" 
+                         value="${effectiveUTopLoss}" 
+                         min="0" max="100" step="0.1">
+                  <span class="input-addon input-addon-right category-addon-badge text-xs">%</span>
+                </div>
+                <div class="param-calc-preview" id="preview-mz-utop-loss-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.mzUTopLoss || (effectiveUTopLoss + '%'))}</span></span>
                 </div>
               </div>
             </div>
@@ -2338,6 +3831,9 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                          min="0" max="100" step="0.1">
                   <span class="input-addon input-addon-right category-addon-badge text-xs">%</span>
                 </div>
+                <div class="param-calc-preview" id="preview-pz-tape-add-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzTapeAdd)}</span></span>
+                </div>
               </div>
 
               <!-- 4. Tape Factor -->
@@ -2353,6 +3849,67 @@ function buildCategoryGroupHTML(group, gIdx, totalGroupsCount) {
                        min="0" max="100" step="0.01">
                 <div class="param-calc-preview" id="preview-pz-resin-${group.id}">
                   <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzResin)}</span></span>
+                </div>
+              </div>
+
+              <!-- 5. H-Bottom Stop Loss Addition -->
+              <div class="category-dynamic-param-item ${!isHBottomApplicable ? 'param-inactive' : ''}">
+                <label class="category-control-label" for="pz-hbottom-loss-${group.id}" title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for PZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}">
+                  H-Bottom Loss %
+                  ${!isHBottomApplicable ? '<span class="text-3xs text-slate-400 font-normal ml-1">(Closed-End only)</span>' : ''}
+                </label>
+                <div class="input-with-addon category-addon-wrapper">
+                  <input type="number" id="pz-hbottom-loss-${group.id}" 
+                         class="form-input font-mono category-styled-input input-pz-param input-group-hbottom-loss" 
+                         data-group-id="${group.id}" 
+                         data-param="hBottomLossPercent" 
+                         value="${isHBottomApplicable ? effectiveHBottomLoss : ''}" 
+                         placeholder="${isHBottomApplicable ? '0' : '—'}"
+                         ${!isHBottomApplicable ? 'disabled' : ''}
+                         title="${isHBottomApplicable ? 'H-Bottom Stop Loss Addition Percentage for PZ' : 'H-Bottom Stop is applicable to Closed-End zippers only (inactive for Open-End)'}"
+                         min="0" max="100" step="0.1">
+                  <span class="input-addon input-addon-right category-addon-badge text-xs ${!isHBottomApplicable ? 'opacity-60 text-slate-400' : ''}">%</span>
+                </div>
+                <div class="param-calc-preview" id="preview-pz-hbottom-${group.id}">
+                  <span class="preview-badge ${!isHBottomApplicable ? 'preview-muted' : ''}"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzHBottom)}</span></span>
+                </div>
+              </div>
+
+              <!-- 6. Special U-Top Requirement -->
+              <div class="category-dynamic-param-item category-dynamic-param-utop-card">
+                <label class="category-control-label" for="pz-utop-special-${group.id}" title="When checked, customer requires 1 U-Top per zipper instead of standard 2 pcs">
+                  U-Top Requirement (PZ)
+                </label>
+                <div class="utop-checkbox-inner-card">
+                  <label class="flex items-center gap-2" style="cursor: pointer; margin: 0; width: 100%; color: #000000;">
+                    <input type="checkbox" id="pz-utop-special-${group.id}" 
+                           class="input-pz-utop-special input-utop-special rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                           data-group-id="${group.id}" 
+                           ${Boolean(group.isSpecialUTopOrder || (pzParams && pzParams.isSpecialUTopOrder)) ? 'checked' : ''}>
+                    <span class="utop-checkbox-label text-xs text-slate-700 font-semibold" style="color: #000000;">Special U-Top Requirement (1 pc per zipper)</span>
+                  </label>
+                </div>
+                <div class="param-calc-preview" id="preview-pz-utop-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzUTop)}</span></span>
+                </div>
+              </div>
+
+              <!-- 6b. U-Top Loss Addition -->
+              <div class="category-dynamic-param-item">
+                <label class="category-control-label" for="pz-utop-loss-${group.id}" title="U-Top Stop Loss Addition Percentage for PZ">
+                  U-Top Loss %
+                </label>
+                <div class="input-with-addon category-addon-wrapper">
+                  <input type="number" id="pz-utop-loss-${group.id}" 
+                         class="form-input font-mono category-styled-input input-pz-param input-group-utop-loss" 
+                         data-group-id="${group.id}" 
+                         data-param="uTopLossPercent" 
+                         value="${effectiveUTopLoss}" 
+                         min="0" max="100" step="0.1">
+                  <span class="input-addon input-addon-right category-addon-badge text-xs">%</span>
+                </div>
+                <div class="param-calc-preview" id="preview-pz-utop-loss-${group.id}">
+                  <span class="preview-badge"><span class="preview-dot"></span><span class="preview-text">${escapeHtml(previews.pzUTopLoss || (effectiveUTopLoss + '%'))}</span></span>
                 </div>
               </div>
             </div>
@@ -2410,7 +3967,7 @@ function buildVariantCardHTML(v, vIdx, group) {
   const cat = group.category || 'cz';
   const size = v.zipperSize || (cat === 'wire' ? '#5_normal' : '#5');
   const unit = v.lengthUnit || 'inch';
-  const type = v.zipperType || 'closed_end';
+  const type = v.zipperType === 'open_end' ? 'open_end' : 'closed_end';
 
   const calcEng = (typeof window !== 'undefined' && window.CalculatorEngine) ? window.CalculatorEngine : null;
   let classKey = '';
@@ -2491,18 +4048,13 @@ function buildVariantCardHTML(v, vIdx, group) {
             <label class="form-label text-xs font-semibold mb-1">
               Finished Length <span class="text-rose-500">*</span>
             </label>
-            <div class="input-with-addon-right">
+            <div class="input-with-addon">
               <input type="number" class="form-input form-input-sm font-mono input-var-length" 
                 data-group-id="${group.id}" 
                 data-var-id="${v.id}" 
                 value="${v.length !== undefined && v.length !== null ? v.length : 0}" 
                 step="any" min="0" placeholder="0">
-              <select class="form-select form-select-sm input-addon-select input-var-unit" 
-                data-group-id="${group.id}" 
-                data-var-id="${v.id}">
-                <option value="inch" ${unit === 'inch' ? 'selected' : ''}>Inch</option>
-                <option value="cm" ${unit === 'cm' ? 'selected' : ''}>cm</option>
-              </select>
+              <span class="input-addon input-addon-right text-xs item-unit-addon-label">${unit === 'cm' ? 'cm' : 'inch'}</span>
             </div>
           </div>
 
@@ -2530,11 +4082,8 @@ function buildVariantCardHTML(v, vIdx, group) {
               <select class="form-select form-select-sm input-var-type" 
                 data-group-id="${group.id}" 
                 data-var-id="${v.id}">
-                <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
                 <option value="open_end" ${type === 'open_end' ? 'selected' : ''}>Open End</option>
-                <option value="two_way" ${type === 'two_way' ? 'selected' : ''}>Two-Way Open</option>
-                ${cat === 'cz' ? `<option value="invisible" ${type === 'invisible' ? 'selected' : ''}>Invisible</option>` : ''}
-                <option value="continuous" ${type === 'continuous' ? 'selected' : ''}>Continuous Chain</option>
+                <option value="closed_end" ${type === 'closed_end' ? 'selected' : ''}>Closed End</option>
               </select>
             </div>
           ` : `
@@ -2670,30 +4219,31 @@ function bindCategoryGroupEventListeners() {
           group.sliderAdditionPercent = dynSliderAdd;
           group.sliderAddPercent = dynSliderAdd;
         }
-        if (group.pinBoxLossPercent === undefined || !group.isPinBoxLossOverridden) {
-          const relevantPinBoxQty = (window.CalculatorEngine && window.CalculatorEngine.getRelevantPinBoxQuantity)
-            ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || [])
-            : 0;
-          const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
-          group.pinBoxLossPercent = (window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
-            ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty)
-            : 8.0;
-        }
-        group.pinBoxPerZipper = 1;
-
         if (newCat === 'mz') {
+          const hasOpen = (group.variants || []).some(v => v.zipperType === 'open_end');
+          if (hasOpen && (group.pinBoxLossPercent === undefined || !group.isPinBoxLossOverridden)) {
+            group.pinBoxLossPercent = (window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage)
+              ? window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupQty)
+              : 8.0;
+          }
+          group.pinBoxPerZipper = 1;
+        }
+
+        if (newCat === 'cz' || newCat === 'mz' || newCat === 'pz') {
           if (group.hBottomLossPercent === undefined || !group.isHBottomLossOverridden) {
-            const mz3Variants = (group.variants || []).filter(v => {
-              const sz = String((v && v.zipperSize) || '').trim();
-              return sz.includes('3');
-            });
-            const mz3Qty = mz3Variants.reduce((sum, v) => sum + Math.max(0, Number(v.quantity) || 0), 0);
             const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
-              ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
+              ? window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty)
               : 8.0;
             group.hBottomLossPercent = dynHBottomLoss;
-            group.mzParams = group.mzParams || {};
-            group.mzParams.hBottomLossPercent = dynHBottomLoss;
+            if (newCat === 'cz') { group.czParams = group.czParams || {}; group.czParams.hBottomLossPercent = dynHBottomLoss; }
+            if (newCat === 'mz') { group.mzParams = group.mzParams || {}; group.mzParams.hBottomLossPercent = dynHBottomLoss; }
+            if (newCat === 'pz') { group.pzParams = group.pzParams || {}; group.pzParams.hBottomLossPercent = dynHBottomLoss; }
+          }
+          if (group.uTopLossPercent === undefined || !group.isUTopLossOverridden) {
+            const dynUTopLoss = (window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage)
+              ? window.CalculatorEngine.getUTopDynamicLossPercentage(groupQty)
+              : 4.0;
+            group.uTopLossPercent = dynUTopLoss;
           }
         }
       }
@@ -2777,23 +4327,41 @@ function bindCategoryGroupEventListeners() {
   container.querySelectorAll('.input-group-slider-add').forEach(input => {
     input.addEventListener('input', (e) => {
       const groupId = e.target.getAttribute('data-group-id');
-      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
-      if (group) {
+      const group = (appState.currentEstimate.categoryGroups && appState.currentEstimate.categoryGroups.find(g => g.id === groupId)) ||
+                    (appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId));
+      const item = appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId);
+      if (group || item) {
         if (e.target.value !== '') {
           const val = parseFloat(e.target.value);
-          group.isSliderOverridden = true;
-          group.sliderAdditionPercent = !isNaN(val) ? Math.max(0, val) : 0;
-          group.sliderAddPercent = group.sliderAdditionPercent;
+          const parsed = !isNaN(val) ? Math.max(0, val) : 0;
+          if (group) {
+            group.isSliderOverridden = true;
+            group.sliderAdditionPercent = parsed;
+            group.sliderAddPercent = parsed;
+          }
+          if (item) {
+            item.isSliderOverridden = true;
+            item.sliderAdditionPercent = parsed;
+            item.sliderAddPercent = parsed;
+          }
         } else {
           // Clear / reset override to dynamic chart default
-          group.isSliderOverridden = false;
-          delete group.sliderAdditionPercent;
-          delete group.sliderAddPercent;
+          const targetObj = item || group;
+          const targetQty = (targetObj.quantity !== undefined && targetObj.quantity !== null && (!targetObj.variants || targetObj.variants.length <= 1))
+            ? Math.max(0, Number(targetObj.quantity) || 0)
+            : ((targetObj.variants || []).reduce((sum, itm) => sum + Math.max(0, Number(itm.quantity) || 0), 0));
           const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
-          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-          const dynSliderAdd = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
-          group.sliderAdditionPercent = dynSliderAdd;
-          group.sliderAddPercent = dynSliderAdd;
+          const dynSliderAdd = getSliderDefault ? getSliderDefault(targetQty) : 8.0;
+          if (group) {
+            group.isSliderOverridden = false;
+            group.sliderAdditionPercent = dynSliderAdd;
+            group.sliderAddPercent = dynSliderAdd;
+          }
+          if (item) {
+            item.isSliderOverridden = false;
+            item.sliderAdditionPercent = dynSliderAdd;
+            item.sliderAddPercent = dynSliderAdd;
+          }
         }
         updateLiveCalculations();
       }
@@ -2801,14 +4369,26 @@ function bindCategoryGroupEventListeners() {
 
     input.addEventListener('change', (e) => {
       const groupId = e.target.getAttribute('data-group-id');
-      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
-      if (group && e.target.value === '') {
+      const group = (appState.currentEstimate.categoryGroups && appState.currentEstimate.categoryGroups.find(g => g.id === groupId)) ||
+                    (appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId));
+      const item = appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId);
+      const targetObj = item || group;
+      if (targetObj && e.target.value === '') {
+        const targetQty = (targetObj.quantity !== undefined && targetObj.quantity !== null && (!targetObj.variants || targetObj.variants.length <= 1))
+          ? Math.max(0, Number(targetObj.quantity) || 0)
+          : ((targetObj.variants || []).reduce((sum, itm) => sum + Math.max(0, Number(itm.quantity) || 0), 0));
         const getSliderDefault = window.CalculatorEngine && (window.CalculatorEngine.getSliderDynamicAddPercentage || window.CalculatorEngine.getSliderDynamicLossPercentage);
-        const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-        const dynSliderAdd = getSliderDefault ? getSliderDefault(groupQty) : 8.0;
-        group.isSliderOverridden = false;
-        group.sliderAdditionPercent = dynSliderAdd;
-        group.sliderAddPercent = dynSliderAdd;
+        const dynSliderAdd = getSliderDefault ? getSliderDefault(targetQty) : 8.0;
+        if (group) {
+          group.isSliderOverridden = false;
+          group.sliderAdditionPercent = dynSliderAdd;
+          group.sliderAddPercent = dynSliderAdd;
+        }
+        if (item) {
+          item.isSliderOverridden = false;
+          item.sliderAdditionPercent = dynSliderAdd;
+          item.sliderAddPercent = dynSliderAdd;
+        }
         e.target.value = dynSliderAdd;
         updateLiveCalculations();
       }
@@ -2833,29 +4413,60 @@ function bindCategoryGroupEventListeners() {
     input.addEventListener('input', (e) => {
       if (e.target.disabled) return;
       const groupId = e.target.getAttribute('data-group-id');
-      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      const group = (appState.currentEstimate.categoryGroups && appState.currentEstimate.categoryGroups.find(g => g.id === groupId)) ||
+                    (appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId));
       if (group) {
         if (e.target.value !== '') {
           const val = parseFloat(e.target.value);
+          const safeVal = !isNaN(val) ? val : 0;
           group.isHBottomLossOverridden = true;
-          group.hBottomLossPercent = !isNaN(val) ? val : 0;
-          group.mzParams = group.mzParams || {};
-          group.mzParams.hBottomLossPercent = !isNaN(val) ? val : 0;
+          group.hBottomLossPercent = safeVal;
+          if (group.czParams || group.category === 'cz') { group.czParams = group.czParams || {}; group.czParams.hBottomLossPercent = safeVal; }
+          if (group.mzParams || group.category === 'mz') { group.mzParams = group.mzParams || {}; group.mzParams.hBottomLossPercent = safeVal; }
+          if (group.pzParams || group.category === 'pz') { group.pzParams = group.pzParams || {}; group.pzParams.hBottomLossPercent = safeVal; }
         } else {
           group.isHBottomLossOverridden = false;
           delete group.hBottomLossPercent;
+          if (group.czParams) delete group.czParams.hBottomLossPercent;
           if (group.mzParams) delete group.mzParams.hBottomLossPercent;
-          const mz3Variants = (group.variants || []).filter(item => {
-            const sz = String((item && item.zipperSize) || '').trim();
-            return sz.includes('3');
-          });
-          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          if (group.pzParams) delete group.pzParams.hBottomLossPercent;
+          const targetVariants = group.variants || [group];
+          const targetQty = (targetVariants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
           const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
-            ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
+            ? window.CalculatorEngine.getHBottomDynamicLossPercentage(targetQty)
             : 8.0;
           group.hBottomLossPercent = dynHBottomLoss;
-          group.mzParams = group.mzParams || {};
-          group.mzParams.hBottomLossPercent = dynHBottomLoss;
+          if (group.czParams || group.category === 'cz') { group.czParams = group.czParams || {}; group.czParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.mzParams || group.category === 'mz') { group.mzParams = group.mzParams || {}; group.mzParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.pzParams || group.category === 'pz') { group.pzParams = group.pzParams || {}; group.pzParams.hBottomLossPercent = dynHBottomLoss; }
+        }
+        updateLiveCalculations();
+      }
+    });
+  });
+
+  // 2b-4. Group U-Top Loss % Input
+  container.querySelectorAll('.input-group-utop-loss').forEach(input => {
+    input.addEventListener('input', (e) => {
+      if (e.target.disabled) return;
+      const groupId = e.target.getAttribute('data-group-id');
+      const group = (appState.currentEstimate.categoryGroups && appState.currentEstimate.categoryGroups.find(g => g.id === groupId)) ||
+                    (appState.currentEstimate.items && appState.currentEstimate.items.find(it => it.id === groupId));
+      if (group) {
+        if (e.target.value !== '') {
+          const val = parseFloat(e.target.value);
+          const safeVal = !isNaN(val) ? val : 0;
+          group.isUTopLossOverridden = true;
+          group.uTopLossPercent = safeVal;
+        } else {
+          group.isUTopLossOverridden = false;
+          delete group.uTopLossPercent;
+          const targetVariants = group.variants || [group];
+          const targetQty = (targetVariants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynUTopLoss = (window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage)
+            ? window.CalculatorEngine.getUTopDynamicLossPercentage(targetQty)
+            : 4.0;
+          group.uTopLossPercent = dynUTopLoss;
         }
         updateLiveCalculations();
       }
@@ -2868,38 +4479,14 @@ function bindCategoryGroupEventListeners() {
       if (e.target.disabled) return;
       const groupId = e.target.getAttribute('data-group-id');
       const paramName = e.target.getAttribute('data-param');
+      if (paramName === 'hBottomLossPercent') return; // Handled by .input-group-hbottom-loss
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       if (group && paramName) {
-        if (paramName === 'hBottomLossPercent') {
-          if (e.target.value !== '') {
-            const val = parseFloat(e.target.value);
-            group.isHBottomLossOverridden = true;
-            group.hBottomLossPercent = !isNaN(val) ? val : 0;
-            group.mzParams = group.mzParams || {};
-            group.mzParams.hBottomLossPercent = !isNaN(val) ? val : 0;
-          } else {
-            group.isHBottomLossOverridden = false;
-            delete group.hBottomLossPercent;
-            if (group.mzParams) delete group.mzParams.hBottomLossPercent;
-            const mz3Variants = (group.variants || []).filter(item => {
-              const sz = String((item && item.zipperSize) || '').trim();
-              return sz.includes('3');
-            });
-            const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-            const dynHBottomLoss = (window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage)
-              ? window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty)
-              : 8.0;
-            group.hBottomLossPercent = dynHBottomLoss;
-            group.mzParams = group.mzParams || {};
-            group.mzParams.hBottomLossPercent = dynHBottomLoss;
-          }
+        group.mzParams = group.mzParams || {};
+        if (e.target.value !== '') {
+          group.mzParams[paramName] = parseFloat(e.target.value);
         } else {
-          group.mzParams = group.mzParams || {};
-          if (e.target.value !== '') {
-            group.mzParams[paramName] = parseFloat(e.target.value);
-          } else {
-            delete group.mzParams[paramName];
-          }
+          delete group.mzParams[paramName];
         }
         updateLiveCalculations();
       }
@@ -2909,8 +4496,10 @@ function bindCategoryGroupEventListeners() {
   // 2d. Group Dynamic CZ Parameters Input
   container.querySelectorAll('.input-cz-param').forEach(input => {
     input.addEventListener('input', (e) => {
+      if (e.target.disabled) return;
       const groupId = e.target.getAttribute('data-group-id');
       const paramName = e.target.getAttribute('data-param');
+      if (paramName === 'hBottomLossPercent') return; // Handled by .input-group-hbottom-loss
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       if (group && paramName) {
         group.czParams = group.czParams || {};
@@ -2932,16 +4521,21 @@ function bindCategoryGroupEventListeners() {
     });
   });
 
-  // 2d-2. Group Special U-Top Requirement Checkbox (CZ#5 only)
-  container.querySelectorAll('.input-cz-utop-special').forEach(input => {
+  // 2d-2. Group Special U-Top Requirement Checkbox (Universal across all zipper categories)
+  container.querySelectorAll('.input-cz-utop-special, .input-mz-utop-special, .input-pz-utop-special, .input-utop-special').forEach(input => {
     input.addEventListener('change', (e) => {
       const groupId = e.target.getAttribute('data-group-id');
-      const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
+      const group = (appState.currentEstimate.categoryGroups && appState.currentEstimate.categoryGroups.find(g => g.id === groupId)) ||
+                    (appState.currentEstimate.items && appState.currentEstimate.items.find(i => i.id === groupId));
       if (group) {
         const isChecked = Boolean(e.target.checked);
         group.isSpecialUTopOrder = isChecked;
         group.czParams = group.czParams || {};
         group.czParams.isSpecialUTopOrder = isChecked;
+        group.mzParams = group.mzParams || {};
+        group.mzParams.isSpecialUTopOrder = isChecked;
+        group.pzParams = group.pzParams || {};
+        group.pzParams.isSpecialUTopOrder = isChecked;
         updateLiveCalculations();
       }
     });
@@ -2976,8 +4570,10 @@ function bindCategoryGroupEventListeners() {
   // 2f. Group Dynamic PZ Parameters Input
   container.querySelectorAll('.input-pz-param').forEach(input => {
     input.addEventListener('input', (e) => {
+      if (e.target.disabled) return;
       const groupId = e.target.getAttribute('data-group-id');
       const paramName = e.target.getAttribute('data-param');
+      if (paramName === 'hBottomLossPercent') return; // Handled by .input-group-hbottom-loss
       const group = appState.currentEstimate.categoryGroups.find(g => g.id === groupId);
       if (group && paramName) {
         group.pzParams = group.pzParams || {};
@@ -3065,16 +4661,14 @@ function bindCategoryGroupEventListeners() {
             group.lossPercent = 5.0;
           }
         }
-        if ((group.category === 'mz' || group.category === 'metal') && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
-          const mz3Variants = (group.variants || []).filter(item => {
-            const sz = String((item && item.zipperSize) || '').trim();
-            return sz.includes('3');
-          });
-          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty);
+        const isZipperCat = (group.category === 'cz' || group.category === 'mz' || group.category === 'pz' || group.category === 'nylon' || group.category === 'metal' || group.category === 'plastic');
+        if (isZipperCat && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty);
           group.hBottomLossPercent = dynHBottomLoss;
-          group.mzParams = group.mzParams || {};
-          group.mzParams.hBottomLossPercent = dynHBottomLoss;
+          if (group.czParams || group.category === 'cz') { group.czParams = group.czParams || {}; group.czParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.mzParams || group.category === 'mz') { group.mzParams = group.mzParams || {}; group.mzParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.pzParams || group.category === 'pz') { group.pzParams = group.pzParams || {}; group.pzParams.hBottomLossPercent = dynHBottomLoss; }
         }
         if (window.BOMRules) {
           v.allowance = window.BOMRules.getSuggestedAllowance(group.category, v.zipperSize, v.lengthUnit, v.zipperType);
@@ -3109,35 +4703,41 @@ function bindCategoryGroupEventListeners() {
           }
         }
       }
-      if (!group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
-        const relevantPinBoxQty = window.CalculatorEngine.getRelevantPinBoxQuantity 
-          ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || []) 
-          : 0;
-        const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-        const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
-        const dynPinBoxLoss = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+      const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+      if ((group.category === 'mz' || group.category === 'metal') && !group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
+        const dynPinBoxLoss = window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupQty);
         group.pinBoxLossPercent = dynPinBoxLoss;
         const pinBoxInput = document.getElementById(`input-pin-box-${group.id}`);
         if (pinBoxInput) {
           pinBoxInput.value = dynPinBoxLoss;
         }
       }
-      if ((group.category === 'mz' || group.category === 'metal') && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
-        const mz3Variants = (group.variants || []).filter(item => {
-          const sz = String((item && item.zipperSize) || '').trim();
-          return sz.includes('3');
-        });
-        if (mz3Variants.length > 0) {
-          const mz3Qty = mz3Variants.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(mz3Qty);
-          group.hBottomLossPercent = dynHBottomLoss;
+      const isZipperCat = (group.category === 'cz' || group.category === 'mz' || group.category === 'pz' || group.category === 'nylon' || group.category === 'metal' || group.category === 'plastic');
+      if (isZipperCat && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+        const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty);
+        group.hBottomLossPercent = dynHBottomLoss;
+        if (group.category === 'cz' || group.category === 'nylon') {
+          group.czParams = group.czParams || {};
+          group.czParams.hBottomLossPercent = dynHBottomLoss;
+          const hBottomInput = document.getElementById(`cz-hbottom-loss-${group.id}`);
+          if (hBottomInput && !hBottomInput.disabled) hBottomInput.value = dynHBottomLoss;
+        } else if (group.category === 'mz' || group.category === 'metal') {
           group.mzParams = group.mzParams || {};
           group.mzParams.hBottomLossPercent = dynHBottomLoss;
           const hBottomInput = document.getElementById(`mz-hbottom-loss-${group.id}`);
-          if (hBottomInput && !hBottomInput.disabled) {
-            hBottomInput.value = dynHBottomLoss;
-          }
+          if (hBottomInput && !hBottomInput.disabled) hBottomInput.value = dynHBottomLoss;
+        } else if (group.category === 'pz' || group.category === 'plastic') {
+          group.pzParams = group.pzParams || {};
+          group.pzParams.hBottomLossPercent = dynHBottomLoss;
+          const hBottomInput = document.getElementById(`pz-hbottom-loss-${group.id}`);
+          if (hBottomInput && !hBottomInput.disabled) hBottomInput.value = dynHBottomLoss;
         }
+      }
+      if (isZipperCat && !group.isUTopLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getUTopDynamicLossPercentage) {
+        const dynUTopLoss = window.CalculatorEngine.getUTopDynamicLossPercentage(groupQty);
+        group.uTopLossPercent = dynUTopLoss;
+        const uTopInput = document.getElementById(`${group.category}-utop-loss-${group.id}`);
+        if (uTopInput && !uTopInput.disabled) uTopInput.value = dynUTopLoss;
       }
     } else if (target.classList.contains('input-var-length')) {
       v.length = target.value !== '' ? (parseFloat(target.value) || 0) : '';
@@ -3205,13 +4805,17 @@ function bindCategoryGroupEventListeners() {
           v.allowance = window.BOMRules.getSuggestedAllowance(group.category, v.zipperSize, v.lengthUnit, v.zipperType);
           v.bomRows = window.BOMRules.generateSuggestedBOM(v, group.category);
         }
-        if (!group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
-          const relevantPinBoxQty = window.CalculatorEngine.getRelevantPinBoxQuantity 
-            ? window.CalculatorEngine.getRelevantPinBoxQuantity(group.variants || []) 
-            : 0;
-          const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-          const pinBoxScopeQty = relevantPinBoxQty > 0 ? relevantPinBoxQty : groupQty;
-          group.pinBoxLossPercent = window.CalculatorEngine.getPinBoxDynamicLossPercentage(pinBoxScopeQty);
+        const groupQty = (group.variants || []).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+        if ((group.category === 'mz' || group.category === 'metal') && !group.isPinBoxLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getPinBoxDynamicLossPercentage) {
+          group.pinBoxLossPercent = window.CalculatorEngine.getPinBoxDynamicLossPercentage(groupQty);
+        }
+        const isZipperCat = (group.category === 'cz' || group.category === 'mz' || group.category === 'pz' || group.category === 'nylon' || group.category === 'metal' || group.category === 'plastic');
+        if (isZipperCat && !group.isHBottomLossOverridden && window.CalculatorEngine && window.CalculatorEngine.getHBottomDynamicLossPercentage) {
+          const dynHBottomLoss = window.CalculatorEngine.getHBottomDynamicLossPercentage(groupQty);
+          group.hBottomLossPercent = dynHBottomLoss;
+          if (group.czParams || group.category === 'cz') { group.czParams = group.czParams || {}; group.czParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.mzParams || group.category === 'mz') { group.mzParams = group.mzParams || {}; group.mzParams.hBottomLossPercent = dynHBottomLoss; }
+          if (group.pzParams || group.category === 'pz') { group.pzParams = group.pzParams || {}; group.pzParams.hBottomLossPercent = dynHBottomLoss; }
         }
         rebuildAndRenderAll();
       }
@@ -3262,6 +4866,10 @@ function updateLiveCalculations() {
   if (!window.CalculatorEngine) return;
 
   try {
+    if (typeof syncStateItemsAndGroups === 'function') {
+      syncStateItemsAndGroups();
+    }
+
     const result = window.CalculatorEngine.calculateFullEstimate(appState.currentEstimate);
     appState.lastCalculation = result;
 
@@ -3281,19 +4889,36 @@ function updateLiveCalculations() {
 
     // 1. Render Consolidated / Merged BOM Table with [ View Calculation ] buttons
     renderConsolidatedBOM(result.aggregatedMaterials);
+    updateMergeBomButtonState();
 
     // 2. Render Material-Specific Calculation Details
     renderCalculationDetails();
 
-    // 3. Update Zipper Class Loss displays across category groups
+    // 3. Update Zipper Class Loss displays across category groups and items
     if (Array.isArray(appState.currentEstimate.categoryGroups)) {
       appState.currentEstimate.categoryGroups.forEach(g => {
         updateClassLossDisplay(g.id);
       });
     }
+    if (Array.isArray(appState.currentEstimate.items)) {
+      appState.currentEstimate.items.forEach(it => {
+        updateClassLossDisplay(it.id);
+      });
+    }
 
     // 4. Update At-a-Glance Category BOM Parameter Previews
     updateCategoryParameterPreviews();
+
+    // 5. Auto-save Ongoing Draft if actively working (not viewing an unedited historical saved record)
+    if (!appState.isViewingSavedRecord && window.StorageManager && window.StorageManager.saveOngoingDraft) {
+      const items = (appState.currentEstimate && Array.isArray(appState.currentEstimate.items)) 
+        ? appState.currentEstimate.items 
+        : [];
+      if (items.length > 0) {
+        window.StorageManager.saveOngoingDraft(appState.currentEstimate);
+      }
+    }
+    updateOngoingEstimateUI();
   } catch (err) {
     console.error('Error during updateLiveCalculations:', err);
   }
@@ -3357,7 +4982,7 @@ function findActiveMaterial(targetKey) {
   // 3. Fallback: Return first available material from the active item / category group
   const activeGroupId = appState.activeItemId || appState.selectedCalcDetailsGroupId;
   if (activeGroupId && Array.isArray(lastCalc.categoryGroups)) {
-    const activeGroup = lastCalc.categoryGroups.find(g => g.id === activeGroupId);
+    const activeGroup = lastCalc.categoryGroups.find(g => g.id === activeGroupId || (g.variants && g.variants.some(v => v.id === activeGroupId || v.itemId === activeGroupId)));
     if (activeGroup && activeGroup.materials && Array.isArray(activeGroup.materials.processedRows) && activeGroup.materials.processedRows.length > 0) {
       const first = activeGroup.materials.processedRows[0];
       const rowUniqueKey = first.uniqueKey || `${activeGroup.id}__${first.key || first.id}`;
@@ -3678,6 +5303,26 @@ function renderStepListHTML(steps, categoryHint = 'cz') {
 
 
 /**
+ * Update the state and styling of the "Merge BoM" button in Section 1 header
+ */
+function updateMergeBomButtonState() {
+  const btn = document.getElementById('btn-merge-bom');
+  const btnText = document.getElementById('btn-merge-bom-text');
+  if (!btn) return;
+  if (appState.bomViewMode === 'merged') {
+    btn.classList.remove('btn-outline');
+    btn.classList.add('btn-primary');
+    if (btnText) btnText.textContent = 'Individual BoM';
+    btn.title = 'Click to switch back to individual per-item BoM tables';
+  } else {
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-outline');
+    if (btnText) btnText.textContent = 'Merge BoM';
+    btn.title = 'Merge all items into a consolidated BoM table';
+  }
+}
+
+/**
  * Render Hierarchically Organized Bill of Materials (BOM)
  * Structured cleanly by:
  * 1. Category Group (e.g. Category Group 1 — Nylon Zipper)
@@ -3685,6 +5330,7 @@ function renderStepListHTML(steps, categoryHint = 'cz') {
  * 3. Physical materials table belonging to that specific calculation group
  * 
  * Includes collapsible headers, source variant badges, and [ View Calculation ] inspection buttons.
+ * Also supports consolidated Merged BOM view when appState.bomViewMode === 'merged'.
  * 
  * @param {Object} materialsData 
  */
@@ -3718,6 +5364,143 @@ function renderConsolidatedBOM(materialsData) {
     if (firstRow) {
       appState.selectedMaterialKey = firstRow.key;
     }
+  }
+
+  // ---------------- MERGED BOM VIEW ----------------
+  if (appState.bomViewMode === 'merged') {
+    let totalOrderVolume = activeGroups.reduce((sum, g) => sum + (g.totalQuantity || 0), 0);
+
+    let html = `<div class="bom-merged-wrapper">`;
+
+    // Merged BOM Banner
+    html += `
+      <div class="bom-merged-banner flex items-center justify-between mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex-wrap gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="badge badge-primary font-bold px-2.5 py-1">MERGED BOM</span>
+          <span class="text-xs text-slate-700 font-medium">
+            Consolidated Bill of Materials across all <strong>${activeGroups.length}</strong> items (${flatRows.length} total line items)
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btn-unmerge-bom-inline" class="btn btn-xs btn-outline" title="Switch back to individual items BoM">
+            <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            View Individual Items
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive bom-subtable-responsive">
+        <table class="bom-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;" class="text-center">#</th>
+              <th>Component / Material</th>
+              <th>Category / Groups</th>
+              <th class="text-center" style="width: 80px;">Unit</th>
+              <th class="text-right" style="width: 140px;">Total Quantity</th>
+              <th class="text-center" style="width: 145px;">Calculation</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    flatRows.forEach((r, rIdx) => {
+      const rowKey = r.key || r.id;
+      const isSelected = (
+        appState.selectedMaterialKey === rowKey ||
+        appState.selectedMaterialKey === r.key ||
+        appState.selectedMaterialKey === r.id ||
+        appState.selectedMaterialKey === r.materialId
+      );
+
+      const isCommon = Array.isArray(r.groupNames) && r.groupNames.length > 1;
+      let categoryLabelHtml = '';
+      if (isCommon) {
+        categoryLabelHtml = `<span class="badge badge-emerald text-xs font-semibold" title="Merged across: ${escapeHtml(r.groupNames.join(', '))}">Common (${r.groupNames.length} Items)</span>`;
+      } else if (r.groupNames && r.groupNames.length === 1) {
+        categoryLabelHtml = `<span class="badge badge-secondary text-xs">${escapeHtml(r.groupNames[0])}</span>`;
+      } else if (r.usedInCategories && r.usedInCategories.length > 0) {
+        categoryLabelHtml = `<span class="badge badge-secondary text-xs">${escapeHtml(r.usedInCategories.join(', '))}</span>`;
+      } else {
+        categoryLabelHtml = `<span class="badge badge-secondary text-xs">Standard</span>`;
+      }
+
+      html += `
+        <tr class="${isSelected ? 'bom-row-active' : ''}">
+          <td class="text-center text-slate-400 font-mono text-xs">${rIdx + 1}</td>
+          <td>
+            <div class="material-name-cell">
+              <span class="font-semibold text-slate-800 text-xs">${escapeHtml(r.materialName || r.component)}</span>
+              ${r.specification ? `<span class="material-spec-hint text-xs text-slate-400 block">${escapeHtml(r.specification)}</span>` : ''}
+              ${isCommon ? `<span class="text-xs text-emerald-600 block mt-0.5 font-medium">✓ Calculated together across: ${escapeHtml(r.groupNames.join(', '))}</span>` : ''}
+            </div>
+          </td>
+          <td>
+            ${categoryLabelHtml}
+          </td>
+          <td class="text-center font-mono text-xs uppercase font-semibold text-slate-600">${escapeHtml(r.unit || 'pcs')}</td>
+          <td class="text-right font-mono text-xs font-bold text-slate-900">${formatBOMQuantity(r)}</td>
+          <td class="text-center">
+            <button type="button" 
+                    class="btn btn-xs ${isSelected ? 'btn-primary' : 'btn-outline'} btn-view-calc" 
+                    data-material-key="${escapeHtml(rowKey)}"
+                    data-row-key="${escapeHtml(rowKey)}"
+                    title="Inspect detailed formula for ${escapeHtml(r.materialName || r.component)}">
+              <svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:12px;height:12px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              View Calculation
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bom-group-summary-footer mt-3">
+        <div class="bom-summary-item">
+          <span class="text-xs text-slate-500">Merged Materials:</span>
+          <strong class="text-xs font-bold text-slate-800">${flatRows.length} line items</strong>
+        </div>
+        <div class="bom-summary-item">
+          <span class="text-xs text-slate-500">Total Order Volume:</span>
+          <strong class="text-xs font-mono font-bold text-slate-900">${totalOrderVolume.toLocaleString()} pcs</strong>
+        </div>
+      </div>
+    </div>`;
+
+    container.innerHTML = html;
+
+    // Attach listeners
+    const unmergeInline = container.querySelector('#btn-unmerge-bom-inline');
+    if (unmergeInline) {
+      unmergeInline.addEventListener('click', () => {
+        appState.bomViewMode = 'individual';
+        updateMergeBomButtonState();
+        renderConsolidatedBOM(materialsData);
+      });
+    }
+
+    container.querySelectorAll('.btn-view-calc').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = e.currentTarget.getAttribute('data-material-key') || e.currentTarget.getAttribute('data-row-key');
+        if (key) {
+          appState.selectedMaterialKey = key;
+          renderConsolidatedBOM(materialsData);
+          renderCalculationDetails();
+          openModal('modal-formula-details');
+        }
+      });
+    });
+
+    return;
   }
 
   let html = `<div class="bom-hierarchy-wrapper">`;
@@ -3955,24 +5738,11 @@ function renderConsolidatedBOM(materialsData) {
       if (key) {
         appState.selectedMaterialKey = key;
 
-        // Auto-expand Calculation Details if collapsed
-        const panel = document.getElementById('section-formula-details');
-        if (panel && panel.classList.contains('is-collapsed')) {
-          panel.classList.remove('is-collapsed');
-          const toggleLabel = document.getElementById('label-toggle-formula');
-          if (toggleLabel) toggleLabel.textContent = 'Hide';
-        }
-
         renderConsolidatedBOM(appState.lastCalculation ? appState.lastCalculation.aggregatedMaterials : null);
         renderCalculationDetails();
 
-        // Smooth scroll on mobile/tablet screens
-        if (window.innerWidth <= 1024) {
-          const calcPanel = document.getElementById('section-formula-details');
-          if (calcPanel) {
-            calcPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
+        // Open Calculation Details as a modal in every screen width
+        openModal('modal-formula-details');
       }
     });
   });
@@ -4002,7 +5772,6 @@ function handleAddCustomMaterialSubmit(e) {
   const isLenDep = document.getElementById('check-custom-length-dep') ? document.getElementById('check-custom-length-dep').checked : false;
 
   if (!name || qty <= 0) {
-    showToast('Please specify a component name and valid quantity', 'warning');
     return;
   }
 
@@ -4047,7 +5816,6 @@ function handleAddCustomMaterialSubmit(e) {
   closeModal('modal-add-material');
   e.target.reset();
   rebuildAndRenderAll();
-  showToast(`Added custom material "${name}" to BOM`, 'success');
 }
 
 /**
@@ -4157,10 +5925,14 @@ function renderOtherCosts() {
  */
 function handleNewEstimate() {
   if (confirm('Start a fresh new estimate? All unsaved changes will be cleared.')) {
+    appState.isViewingSavedRecord = false;
+    appState.viewingSavedEstimateId = null;
+
     appState.currentEstimate = {
       id: null,
       name: '',
       reference: 'EST-' + Math.floor(1000 + Math.random() * 9000),
+      lengthUnit: 'inch',
       items: [],
       categoryGroups: [],
       labor: {
@@ -4178,12 +5950,16 @@ function handleNewEstimate() {
       priceOverrides: {}
     };
 
+    appState.lengthUnit = 'inch';
+    const unitSelect = (typeof document !== 'undefined') ? document.getElementById('select-item-unit') : null;
+    if (unitSelect) unitSelect.value = 'inch';
+
     appState.activeItemId = null;
     appState.selectedCalcDetailsGroupId = null;
     appState.selectedMaterialKey = null;
     populateCommonForm();
     rebuildAndRenderAll();
-    showToast('Started fresh blank estimate.', 'info');
+    updateOngoingEstimateUI();
   }
 }
 
@@ -4203,10 +5979,28 @@ function handleExportPDF() {
  */
 function openSaveEstimateModal() {
   const est = appState.currentEstimate;
-  setInputValue('input-save-name', est.name || est.styleName || `Zipper BOM Estimate - ${est.reference}`);
-  setInputValue('input-save-reference', est.reference || '');
-  setInputValue('textarea-save-notes', est.remarks || '');
+  syncStateItemsAndGroups();
+
+  let defaultName = est.name || '';
+  if (!defaultName && est.items && est.items.length > 0) {
+    const itemNames = est.items.map(i => i.displayName || i.name).filter(Boolean).slice(0, 3).join(' + ');
+    defaultName = itemNames ? `${itemNames} Calculation` : '';
+  }
+  if (!defaultName) {
+    defaultName = `Calculation - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  }
+
+  setInputValue('input-save-name', defaultName);
+  setInputValue('input-save-ref', est.reference || '');
   openModal('modal-save-estimate');
+
+  const inputEl = document.getElementById('input-save-name');
+  if (inputEl) {
+    setTimeout(() => {
+      inputEl.focus();
+      inputEl.select();
+    }, 50);
+  }
 }
 
 /**
@@ -4214,26 +6008,41 @@ function openSaveEstimateModal() {
  */
 function handleSaveEstimateSubmit(e) {
   e.preventDefault();
-  const name = getInputValue('input-save-name');
-  const ref = getInputValue('input-save-reference');
-  const notes = getInputValue('textarea-save-notes');
+  const name = String(getInputValue('input-save-name') || '').trim();
+  const ref = String(getInputValue('input-save-ref') || '').trim();
 
   if (!name) {
-    showToast('Please enter an estimate name', 'warning');
+    const inputEl = document.getElementById('input-save-name');
+    if (inputEl) inputEl.focus();
     return;
   }
 
-  const est = appState.currentEstimate;
+  // Ensure state is synced
+  syncStateItemsAndGroups();
+
+  const est = JSON.parse(JSON.stringify(appState.currentEstimate));
   est.name = name;
-  est.reference = ref || est.reference;
-  est.remarks = notes;
+  est.reference = ref || est.reference || ('REF-' + Math.floor(1000 + Math.random() * 9000));
+  
+  // Assign a unique calculation ID
+  const uniqueId = (window.StorageManager && window.StorageManager.generateUniqueCalculationId)
+    ? window.StorageManager.generateUniqueCalculationId()
+    : ('calc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+
+  est.id = uniqueId;
+  est.activeItemId = appState.activeItemId;
+  est.bomViewMode = appState.bomViewMode || 'individual';
+  est.savedAt = new Date().toISOString();
 
   if (window.StorageManager) {
-    const savedId = window.StorageManager.saveEstimate(est);
-    est.id = savedId;
+    const saved = window.StorageManager.saveEstimate(est);
+    appState.currentEstimate.id = saved.id;
+    appState.currentEstimate.name = saved.name;
+    appState.currentEstimate.reference = saved.reference;
+    appState.currentEstimate.savedAt = saved.savedAt;
+
     updateSavedBadgeCount();
     closeModal('modal-save-estimate');
-    showToast(`Estimate "${name}" saved successfully!`, 'success');
   }
 }
 
@@ -4246,78 +6055,190 @@ function openSavedEstimatesModal() {
 }
 
 /**
+ * Load a saved calculation snapshot completely into the application page
+ * @param {Object} loaded - Normalized saved calculation object
+ * @param {Object} [options={}] - Options (e.g. { isSavedRecord: true, isOngoing: true })
+ */
+function loadCalculationIntoPage(loaded, options = {}) {
+  if (!loaded) return;
+
+  // Deep clone to isolate state
+  const est = JSON.parse(JSON.stringify(loaded));
+
+  if (options.isSavedRecord) {
+    appState.isViewingSavedRecord = true;
+    appState.viewingSavedEstimateId = loaded.id;
+  } else if (options.isOngoing) {
+    appState.isViewingSavedRecord = false;
+    appState.viewingSavedEstimateId = null;
+  }
+
+  appState.currentEstimate = est;
+  const estUnit = est.lengthUnit || (est.items && est.items[0] && est.items[0].lengthUnit) || 'inch';
+  est.lengthUnit = estUnit;
+  appState.lengthUnit = estUnit;
+  const unitSelect = (typeof document !== 'undefined') ? document.getElementById('select-item-unit') : null;
+  if (unitSelect) unitSelect.value = estUnit;
+
+  appState.activeItemId = est.activeItemId || (est.items && est.items[0] ? est.items[0].id : null);
+  appState.bomViewMode = est.bomViewMode || 'individual';
+  appState.selectedCalcDetailsGroupId = est.categoryGroups && est.categoryGroups[0] ? est.categoryGroups[0].id : null;
+  appState.selectedMaterialKey = null;
+
+  // Synchronize state and form
+  syncStateItemsAndGroups();
+  populateCommonForm();
+  updateMergeBomButtonState();
+
+  // Full re-render of left items list, right configuration panel, and BoM tables
+  rebuildAndRenderAll();
+
+  // Update Ongoing Estimate UI state
+  updateOngoingEstimateUI();
+
+  // Close modal
+  closeModal('modal-saved-estimates');
+}
+
+/**
  * Render Saved Estimates List
  */
 function renderSavedEstimatesList(filterQuery = '') {
   const container = document.getElementById('saved-estimates-list');
   if (!container || !window.StorageManager) return;
 
-  const estimates = window.StorageManager.getAllEstimates();
+  const getSaved = window.StorageManager.getAllSavedEstimates || window.StorageManager.getAllEstimates;
+  const estimates = getSaved ? getSaved() : [];
   const q = String(filterQuery || '').toLowerCase().trim();
 
   const filtered = estimates.filter(e => {
     if (!q) return true;
     const name = String(e.name || '').toLowerCase();
+    const id = String(e.id || '').toLowerCase();
     const ref = String(e.reference || '').toLowerCase();
     const style = String(e.styleName || '').toLowerCase();
-    return name.includes(q) || ref.includes(q) || style.includes(q);
+    const itemNames = Array.isArray(e.items) ? e.items.map(i => String(i.displayName || i.name || '').toLowerCase()).join(' ') : '';
+    return name.includes(q) || id.includes(q) || ref.includes(q) || style.includes(q) || itemNames.includes(q);
   });
 
   if (filtered.length === 0) {
     container.innerHTML = `
-      <div class="empty-state">
-        <p class="text-sm text-slate-500 font-medium">${q ? 'No matching saved estimates found.' : 'No saved estimates yet.'}</p>
+      <div class="empty-state p-6 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+        <svg class="w-10 h-10 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:40px;height:40px;">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        </svg>
+        <p class="font-medium text-slate-700 text-sm mb-1">${q ? 'No matching saved calculations found.' : 'No saved calculations yet.'}</p>
+        <p class="text-xs text-slate-400">Save your current BoM calculation using the "Save Calculation" button.</p>
       </div>
     `;
     return;
   }
 
-  container.innerHTML = filtered.map(e => `
-    <div class="saved-estimate-item p-3 mb-2 bg-white rounded-lg border border-slate-200 flex justify-between items-center shadow-sm hover:border-indigo-300">
-      <div>
-        <h4 class="text-sm font-bold text-slate-800">${escapeHtml(e.name || 'Untitled Estimate')}</h4>
-        <div class="flex items-center gap-2 mt-1 text-xs text-slate-500">
-          <span class="font-mono font-semibold text-indigo-600">${escapeHtml(e.reference || '')}</span>
-          <span>•</span>
-          <span>${Array.isArray(e.categoryGroups) ? `${e.categoryGroups.length} Category Group(s)` : (e.category || 'CZ').toUpperCase()}</span>
-          <span>•</span>
-          <span>${new Date(e.updatedAt || e.createdAt || Date.now()).toLocaleDateString()}</span>
+  container.innerHTML = filtered.map(e => {
+    const itemCount = Array.isArray(e.items) ? e.items.length : (Array.isArray(e.categoryGroups) ? e.categoryGroups.length : 0);
+    const itemNames = Array.isArray(e.items)
+      ? e.items.map(i => i.displayName || i.name).filter(Boolean).join(', ')
+      : (Array.isArray(e.categoryGroups) ? e.categoryGroups.map(g => g.name || g.category).filter(Boolean).join(', ') : '');
+    
+    let totalQty = 0;
+    if (Array.isArray(e.items)) {
+      totalQty = e.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+    } else if (Array.isArray(e.categoryGroups)) {
+      totalQty = e.categoryGroups.reduce((sum, g) => {
+        const vQty = Array.isArray(g.variants) ? g.variants.reduce((s, v) => s + (Number(v.quantity) || 0), 0) : 0;
+        return sum + vQty;
+      }, 0);
+    }
+    if (!totalQty && e.calculationSnapshot && e.calculationSnapshot.totalOrderQuantity) {
+      totalQty = e.calculationSnapshot.totalOrderQuantity;
+    }
+
+    const savedDate = new Date(e.savedAt || e.updatedAt || e.createdAt || Date.now()).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    return `
+      <div class="saved-estimate-card mb-2.5 p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer" data-id="${escapeHtml(e.id)}" title="Click to view and load this calculation">
+        <div class="flex justify-between items-start gap-3">
+          <div style="flex: 1; min-width: 0;">
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+              <h4 class="saved-card-title text-base font-bold text-slate-900 leading-tight m-0">${escapeHtml(e.name || 'Untitled Calculation')}</h4>
+              <span class="badge font-mono text-3xs font-semibold px-2 py-0.5" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;" title="Unique Calculation ID">${escapeHtml(e.id)}</span>
+            </div>
+            
+            <div class="flex items-center gap-2 text-xs text-slate-500 flex-wrap mt-1">
+              ${itemCount > 0 ? `<span class="font-medium text-indigo-700 font-mono">${itemCount} Item${itemCount > 1 ? 's' : ''}${itemNames ? ` (${escapeHtml(itemNames)})` : ''}</span> <span>•</span>` : ''}
+              ${totalQty > 0 ? `<span class="font-mono text-slate-700 font-semibold">${totalQty.toLocaleString()} pcs</span> <span>•</span>` : ''}
+              <span class="text-slate-400">${savedDate}</span>
+              ${e.reference ? `<span>•</span> <span class="text-slate-400 font-mono">${escapeHtml(e.reference)}</span>` : ''}
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 flex-shrink-0" onclick="event.stopPropagation();">
+            <button type="button" class="btn btn-sm btn-primary btn-load-estimate" data-id="${escapeHtml(e.id)}" title="Load this calculation into the page">
+              <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              View / Load
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost text-rose-500 hover:bg-rose-50 btn-delete-estimate" data-id="${escapeHtml(e.id)}" title="Delete this saved calculation">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn btn-sm btn-primary btn-load-estimate" data-id="${e.id}">Load</button>
-        <button type="button" class="btn btn-sm btn-ghost text-rose-500 btn-delete-estimate" data-id="${e.id}">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+
+  // Handle click on card or load button
+  const handleLoad = (id) => {
+    const loaded = window.StorageManager.getEstimateById(id);
+    if (loaded) {
+      // If user was actively working on an ongoing estimate (not already viewing an unedited saved record),
+      // ensure the ongoing estimate is safely saved before loading the historical record!
+      if (!appState.isViewingSavedRecord && appState.currentEstimate) {
+        const hasWork = (Array.isArray(appState.currentEstimate.items) && appState.currentEstimate.items.length > 0) ||
+                        (Array.isArray(appState.currentEstimate.categoryGroups) && appState.currentEstimate.categoryGroups.length > 0);
+        if (hasWork && window.StorageManager && window.StorageManager.saveOngoingDraft) {
+          window.StorageManager.saveOngoingDraft(appState.currentEstimate);
+        }
+      }
+      loadCalculationIntoPage(loaded, { isSavedRecord: true });
+    }
+  };
+
+  container.querySelectorAll('.saved-estimate-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const id = card.getAttribute('data-id');
+      handleLoad(id);
+    });
+  });
 
   container.querySelectorAll('.btn-load-estimate').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const id = e.currentTarget.getAttribute('data-id');
-      const loaded = window.StorageManager.getEstimateById(id);
-      if (loaded) {
-        appState.currentEstimate = loaded;
-        appState.selectedCalcDetailsGroupId = loaded.categoryGroups && loaded.categoryGroups[0] ? loaded.categoryGroups[0].id : null;
-        populateCommonForm();
-        rebuildAndRenderAll();
-        closeModal('modal-saved-estimates');
-        showToast(`Loaded "${loaded.name}"`, 'success');
-      }
+      e.stopPropagation();
+      const id = btn.getAttribute('data-id');
+      handleLoad(id);
     });
   });
 
   container.querySelectorAll('.btn-delete-estimate').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const id = e.currentTarget.getAttribute('data-id');
-      if (confirm('Delete this saved estimate snapshot?')) {
+      e.stopPropagation();
+      const id = btn.getAttribute('data-id');
+      const calc = window.StorageManager.getEstimateById(id);
+      const name = calc ? calc.name : 'this calculation';
+      if (confirm(`Are you sure you want to delete "${name}"?`)) {
         window.StorageManager.deleteEstimate(id);
         renderSavedEstimatesList(filterQuery);
         updateSavedBadgeCount();
-        showToast('Estimate deleted', 'info');
       }
     });
   });
@@ -4332,13 +6253,11 @@ function handleImportBackup(e) {
 
   if (window.StorageManager) {
     window.StorageManager.importEstimatesFromJSON(file, (err, count) => {
-      if (err) {
-        showToast(`Import failed: ${err.message}`, 'error');
-      } else {
+      if (!err) {
         updateSavedBadgeCount();
         renderSavedEstimatesList();
-        showToast(`Successfully imported ${count} estimates!`, 'success');
       }
+      e.target.value = '';
     });
   }
 }
@@ -4349,8 +6268,60 @@ function handleImportBackup(e) {
 function updateSavedBadgeCount() {
   const badge = document.getElementById('badge-saved-count');
   if (badge && window.StorageManager) {
-    badge.textContent = window.StorageManager.getAllEstimates().length;
+    const getSaved = window.StorageManager.getAllSavedEstimates || window.StorageManager.getAllEstimates;
+    const list = getSaved ? getSaved() : [];
+    badge.textContent = Array.isArray(list) ? list.length : 0;
   }
+}
+
+/**
+ * Update Ongoing Estimate Button and Badge UI State
+ */
+function updateOngoingEstimateUI() {
+  if (typeof document === 'undefined' || !window.StorageManager) return;
+  const btn = document.getElementById('btn-ongoing-estimate');
+  const badge = document.getElementById('badge-ongoing-status');
+  if (!btn) return;
+
+  const hasDraft = window.StorageManager.hasOngoingDraft ? window.StorageManager.hasOngoingDraft() : false;
+  if (badge && badge.style) {
+    badge.style.display = hasDraft ? 'inline-flex' : 'none';
+  }
+
+  if (btn.classList) {
+    if (appState.isViewingSavedRecord && hasDraft) {
+      btn.classList.add('btn-highlight-pulse');
+      btn.title = 'You are viewing a saved calculation. Click to return to your ongoing calculation.';
+    } else {
+      btn.classList.remove('btn-highlight-pulse');
+      btn.title = hasDraft ? 'Return to your ongoing in-progress calculation' : 'No ongoing calculation draft saved yet';
+    }
+  }
+}
+
+/**
+ * Handle Ongoing Estimate Button Click
+ * Restores the in-progress calculation draft with all items, parameters, and tables
+ */
+function handleOngoingEstimateClick() {
+  if (!window.StorageManager) return;
+
+  const hasDraft = window.StorageManager.hasOngoingDraft ? window.StorageManager.hasOngoingDraft() : false;
+  if (!hasDraft) {
+    return;
+  }
+
+  const draft = window.StorageManager.getOngoingDraft();
+  if (!draft) {
+    return;
+  }
+
+  // If already working on this ongoing calculation and not viewing a saved record, return
+  if (!appState.isViewingSavedRecord && appState.currentEstimate && draft.draftSavedAt && appState.currentEstimate.draftSavedAt === draft.draftSavedAt) {
+    return;
+  }
+
+  loadCalculationIntoPage(draft, { isOngoing: true });
 }
 
 /**
@@ -4400,31 +6371,10 @@ function toggleLaborMethodUI(method) {
 }
 
 /**
- * UI Toast Notification System
+ * UI Toast Notification System (Disabled)
  */
 function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-message">${escapeHtml(message)}</span>
-    <button type="button" class="toast-close">&times;</button>
-  `;
-
-  container.appendChild(toast);
-
-  toast.querySelector('.toast-close').addEventListener('click', () => {
-    toast.remove();
-  });
-
-  setTimeout(() => {
-    if (toast.parentNode) {
-      toast.classList.add('toast-fade-out');
-      setTimeout(() => toast.remove(), 300);
-    }
-  }, 4000);
+  // Toast notifications removed per user request
 }
 
 /**

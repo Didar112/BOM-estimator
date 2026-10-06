@@ -1,15 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Zipper BOM Calculator & Cost Estimator - Professional manufacturing bill of materials and production cost estimation tool for Bangladeshi garment and trim industries.">
+  <meta name="description"
+    content="Zipper BOM Calculator & Cost Estimator - Professional manufacturing bill of materials and production cost estimation tool for Bangladeshi garment and trim industries.">
   <title>Zipper BOM Calculator & Cost Estimator</title>
 
   <!-- Google Fonts: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
 
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css">
@@ -19,6 +23,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
+
 <body>
 
   <!-- ==================== TOP APPLICATION HEADER ==================== -->
@@ -28,7 +33,8 @@
         <div class="brand-icon-wrapper" aria-hidden="true">
           <!-- Zipper Glyph SVG Icon -->
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width: 26px; height: 26px;">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v20M9 5h6M9 9h6M9 13h6M9 17h6M7 21h10a1 1 0 001-1V4a1 1 0 00-1-1H7a1 1 0 00-1 1v16a1 1 0 001 1z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 2v20M9 5h6M9 9h6M9 13h6M9 17h6M7 21h10a1 1 0 001-1V4a1 1 0 00-1-1H7a1 1 0 00-1 1v16a1 1 0 001 1z" />
           </svg>
         </div>
         <div class="brand-text">
@@ -36,7 +42,8 @@
             Zipper BOM Calculator
             <span class="brand-badge">Factory Edition</span>
           </h1>
-          <p class="brand-subtitle">Consolidated material requirements, factory allowances &amp; calculation breakdown</p>
+          <p class="brand-subtitle">Consolidated material requirements, factory allowances &amp; calculation breakdown
+          </p>
         </div>
       </div>
 
@@ -48,16 +55,37 @@
           </svg>
           New Estimate
         </button>
-        <button type="button" id="btn-saved-estimates" class="btn btn-outline" title="View saved estimate snapshots">
+        <button type="button" id="btn-ongoing-estimate" class="btn btn-outline"
+          title="Return to your ongoing in-progress calculation">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Ongoing Estimate
+          <span id="badge-ongoing-status" class="badge-ongoing-pill" style="display: none;">Draft</span>
+        </button>
+        <button type="button" id="btn-save-calculation" class="btn btn-outline"
+          title="Save current calculation snapshot">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+          </svg>
+          Save Calculation
+        </button>
+        <button type="button" id="btn-saved-estimates" class="btn btn-outline"
+          title="View saved calculations and snapshots">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
           </svg>
           Saved Estimates
           <span id="badge-saved-count" class="badge-counter">0</span>
         </button>
-        <button type="button" id="btn-export-pdf" class="btn btn-primary" title="Export current estimate as a professional PDF report">
+        <button type="button" id="btn-export-pdf" class="btn btn-primary"
+          title="Export current estimate as a professional PDF report">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           Export PDF
         </button>
@@ -69,7 +97,7 @@
   <main class="app-container">
     <div class="main-layout-grid">
 
-      <!-- ==================== LEFT MAIN AREA (60%) ==================== -->
+      <!-- ==================== LEFT MAIN AREA (45%) ==================== -->
       <div class="left-column">
 
         <!-- CARD 1: ITEMS CONFIGURATION -->
@@ -77,8 +105,10 @@
           <div class="card-header">
             <div class="card-title-group">
               <div class="card-icon" aria-hidden="true">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:20px;height:20px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:20px;height:20px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
               </div>
               <div>
@@ -86,17 +116,54 @@
                 <p class="card-subtitle">Configure independent zipper items &amp; production requirements</p>
               </div>
             </div>
+
+            <div class="flex items-center gap-2">
+              <button type="button" id="btn-view-bom" class="btn btn-sm btn-outline" title="Scroll down to BoM table">
+                <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View BoM
+              </button>
+              <button type="button" id="btn-merge-bom" class="btn btn-sm btn-outline"
+                title="Merge all items into a consolidated BoM table">
+                <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                <span id="btn-merge-bom-text">Merge BoM</span>
+              </button>
+            </div>
           </div>
 
           <div class="card-body">
-            <!-- Top Toolbar: Items counter & Add New Item -->
-            <div class="items-toolbar flex items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200 flex-wrap">
+            <!-- Items Counter Header -->
+            <div class="items-header flex items-center justify-between gap-3 mb-3 pb-2 border-b border-slate-200">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-bold text-slate-800 uppercase tracking-wider" id="items-count-display">
                   Items (<span id="items-count-badge">0</span>)
                 </span>
               </div>
+            </div>
+
+            <!-- Dynamic Items Container -->
+            <div id="items-container" class="items-container">
+              <!-- Dynamically populated via app.js -->
+            </div>
+
+            <!-- Bottom Toolbar: Add Item Variant, Unit & Button -->
+            <div
+              class="items-toolbar items-bottom-toolbar flex items-center justify-between gap-3 mt-3 pt-2.5 pb-2.5 border-t border-slate-200 flex-wrap">
               <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Add Item
+                </span>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
                 <select id="select-add-item-variant" class="form-select form-select-sm" style="min-width: 175px;">
                   <optgroup label="Nylon Zipper (CZ)">
                     <option value="cz_5" selected>CZ#5</option>
@@ -104,7 +171,6 @@
                   </optgroup>
                   <optgroup label="Metal Zipper (MZ)">
                     <option value="mz_3">MZ#3</option>
-                    <option value="mz_4">MZ#4</option>
                     <option value="mz_5">MZ#5</option>
                   </optgroup>
                   <optgroup label="Plastic Zipper (PZ)">
@@ -118,18 +184,19 @@
                     <option value="wire_5_long">WIRE#5 — Long</option>
                   </optgroup>
                 </select>
-                <button type="button" id="btn-add-item" class="btn btn-sm btn-primary" title="Add another independent Item">
-                  <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
+                <select id="select-item-unit" class="form-select form-select-sm font-semibold" style="min-width: 80px;" title="Select length unit (Inch / cm)">
+                  <option value="inch" selected>Inch</option>
+                  <option value="cm">cm</option>
+                </select>
+                <button type="button" id="btn-add-item" class="btn btn-sm btn-primary"
+                  title="Add another independent Item">
+                  <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    style="width:16px;height:16px;">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
                   </svg>
-                  + Add New Item
+                  Add New Item
                 </button>
               </div>
-            </div>
-
-            <!-- Dynamic Items Container -->
-            <div id="items-container" class="items-container">
-              <!-- Dynamically populated via app.js -->
             </div>
 
             <!-- Legacy alias container for backward-compat -->
@@ -137,13 +204,71 @@
           </div>
         </section>
 
+      </div>
+
+      <!-- ==================== RIGHT COLUMN (55%) ==================== -->
+      <div class="right-column">
+
+        <!-- CARD 1: SELECT ITEM (CONFIGURATION PANEL) -->
+        <section class="card card-select-item mb-4" id="section-select-item">
+          <div class="card-header select-item-header">
+            <div class="flex items-center justify-between">
+              <div class="card-title-group">
+                <div class="card-icon icon-gear-sm" aria-hidden="true">
+                  <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    style="width:18px;height:18px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="card-title text-base" id="heading-select-item">Select Item</h3>
+                  <span class="card-subtitle text-xs text-muted" id="subheading-select-item">Item-specific factory
+                    parameters &amp; configuration</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap" id="select-item-header-toolbar">
+                <div id="active-item-badge-wrapper">
+                  <!-- Dynamically populated: Active item pill -->
+                </div>
+                <div class="preset-select-wrapper flex items-center gap-1.5" title="Custom parameter presets scoped to active category and unit">
+                  <label for="select-param-preset" class="text-xs text-slate-500 font-semibold">Preset:</label>
+                  <select id="select-param-preset" class="form-select form-select-sm text-xs font-medium" style="min-width: 170px;">
+                    <option value="__standard__">Standard Parameters</option>
+                  </select>
+                </div>
+                <button type="button" id="btn-save-custom-params" class="btn btn-sm btn-outline btn-save-params" disabled title="Change any static parameter from standard values to save as preset">
+                  <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  Save custom Parameters
+                </button>
+                <button type="button" id="btn-load-standard-params" class="btn btn-sm btn-outline btn-load-standard" title="Restore default factory standard parameters">
+                  <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Load Standard Parameters
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body select-item-body" id="select-item-config-body">
+            <!-- Dynamically populated via app.js -->
+          </div>
+        </section>
+
         <!-- CARD 2: CONSOLIDATED BILL OF MATERIALS (BOM) -->
-        <section class="card" id="section-bom-materials">
+        <section class="card mb-4" id="section-bom-materials">
           <div class="card-header">
             <div class="card-title-group">
               <div class="card-icon" aria-hidden="true">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:20px;height:20px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:20px;height:20px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
               </div>
               <div>
@@ -154,14 +279,18 @@
 
             <div class="flex items-center gap-2">
               <button type="button" id="btn-add-custom-material" class="btn btn-sm btn-outline">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:14px;height:14px;">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                + Add Custom Material
+                Add Custom Material
               </button>
-              <button type="button" id="btn-reset-bom" class="btn btn-sm btn-ghost" title="Reset all items to suggested defaults">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <button type="button" id="btn-reset-bom" class="btn btn-sm btn-ghost"
+                title="Reset all items to suggested defaults">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  style="width:14px;height:14px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 Reset BOM
               </button>
@@ -176,67 +305,8 @@
           </div>
         </section>
 
-      </div>
-
-      <!-- ==================== RIGHT STICKY COLUMN (40%) ==================== -->
-      <div class="right-column">
-
-        <!-- CARD 1: SELECT ITEM (CONFIGURATION PANEL) -->
-        <section class="card card-select-item mb-4" id="section-select-item">
-          <div class="card-header select-item-header">
-            <div class="flex items-center justify-between">
-              <div class="card-title-group">
-                <div class="card-icon icon-gear-sm" aria-hidden="true">
-                  <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:18px;height:18px;">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 class="card-title text-base" id="heading-select-item">Select Item</h3>
-                  <span class="card-subtitle text-xs text-muted" id="subheading-select-item">Item-specific factory parameters &amp; configuration</span>
-                </div>
-              </div>
-              <div id="active-item-badge-wrapper">
-                <!-- Dynamically populated: Active item pill -->
-              </div>
-            </div>
-          </div>
-
-          <div class="card-body select-item-body" id="select-item-config-body">
-            <!-- Dynamically populated via app.js -->
-          </div>
-        </section>
-
-        <!-- CARD 2: CALCULATION DETAILS (MATERIAL INSPECTOR) -->
-        <section class="card card-formula-details" id="section-formula-details">
-          <div class="calc-sidebar-header">
-            <div class="calc-header-top">
-              <div class="calc-title-badge-group">
-                <div class="card-icon icon-math-sm" aria-hidden="true">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 class="calc-sidebar-title">Calculation Details</h3>
-                  <span class="calc-sidebar-subtitle">Material-specific factory math</span>
-                </div>
-              </div>
-
-              <button type="button" id="btn-toggle-formula-details" class="btn btn-xs btn-outline btn-collapse-calc" title="Toggle Calculation Details">
-                <span id="label-toggle-formula">Hide</span>
-                <svg class="w-3 h-3 inline ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:11px;height:11px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="card-body calc-sidebar-body" id="formula-details-body">
-            <!-- Dynamically populated via app.js -->
-          </div>
-        </section>
+        <!-- Calculation Details container for backwards compatibility with test harnesses -->
+        <div id="section-formula-details" style="display:none;" aria-hidden="true"></div>
 
       </div>
 
@@ -247,59 +317,73 @@
   <!-- ==================== MODALS & DRAWERS ==================== -->
 
   <!-- 1. SAVE ESTIMATE MODAL -->
-  <div id="modal-save-estimate" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-save-title">
+  <div id="modal-save-estimate" class="modal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="modal-save-title">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 id="modal-save-title" class="modal-title">Save Estimate Snapshot</h3>
-        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        <h3 id="modal-save-title" class="modal-title">Save Calculation</h3>
+        <button type="button" class="modal-close" aria-label="Close modal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
       <form id="form-save-estimate">
         <div class="modal-body">
           <p class="text-xs text-muted mb-3">
-            Saves a complete standalone snapshot of all product parameters, BOM materials, prices, wastage %, and labor settings to your browser storage.
+            Saves the complete calculation page with all items, factory parameters, allowances, and live BOM values.
           </p>
           <div class="form-group">
-            <label for="input-save-name" class="form-label">Estimate / Project Name <span class="required-star">*</span></label>
-            <input type="text" id="input-save-name" class="form-input" placeholder="e.g. Men Padded Jacket - Nylon #5" required>
+            <label for="input-save-name" class="form-label">Calculation Name <span
+                class="required-star">*</span></label>
+            <input type="text" id="input-save-name" class="form-input" placeholder="e.g. Men Padded Jacket - Nylon #5"
+              required autofocus>
           </div>
           <div class="form-group mt-3">
-            <label for="input-save-ref" class="form-label">Order / Reference Number</label>
+            <label for="input-save-ref" class="form-label">Order / Reference Number (Optional)</label>
             <input type="text" id="input-save-ref" class="form-input font-mono" placeholder="e.g. ORD-2026-0812">
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Snapshot</button>
+          <button type="submit" class="btn btn-primary">Save Calculation</button>
         </div>
       </form>
     </div>
   </div>
 
   <!-- 2. SAVED ESTIMATES DRAWER / MODAL -->
-  <div id="modal-saved-estimates" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-saved-title">
+  <div id="modal-saved-estimates" class="modal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="modal-saved-title">
     <div class="modal-box modal-box-lg">
       <div class="modal-header">
         <div>
           <h3 id="modal-saved-title" class="modal-title">Saved Estimate History</h3>
           <p class="text-xs text-muted mt-1">Browse, restore, duplicate, or export previous BOM estimations</p>
         </div>
-        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        <button type="button" class="modal-close" aria-label="Close modal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
       <div class="modal-body">
         <!-- Search and Backup Bar -->
         <div class="flex justify-between items-center gap-3 mb-4">
           <div class="form-group" style="flex: 1;">
-            <input type="text" id="input-search-saved" class="form-input form-input-sm" placeholder="🔍 Search estimates by name, reference, type...">
+            <input type="text" id="input-search-saved" class="form-input form-input-sm"
+              placeholder="🔍 Search estimates by name, reference, type...">
           </div>
           <div class="flex gap-2">
-            <button type="button" id="btn-export-backup" class="btn btn-sm btn-outline" title="Export all estimates as a JSON backup file">
+            <button type="button" id="btn-export-backup" class="btn btn-sm btn-outline"
+              title="Export all estimates as a JSON backup file">
               Download JSON Backup
             </button>
-            <label class="btn btn-sm btn-outline" style="cursor: pointer;" title="Import estimates from JSON backup file">
+            <label class="btn btn-sm btn-outline" style="cursor: pointer;"
+              title="Import estimates from JSON backup file">
               Restore Backup
               <input type="file" id="input-import-backup" accept=".json" style="display: none;">
             </label>
@@ -311,43 +395,50 @@
           <!-- Dynamically populated via app.js -->
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline btn-modal-cancel">Close</button>
-      </div>
     </div>
   </div>
 
   <!-- 3. ADD CUSTOM MATERIAL MODAL -->
-  <div id="modal-add-material" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-add-mat-title">
+  <div id="modal-add-material" class="modal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="modal-add-mat-title">
     <div class="modal-box">
       <div class="modal-header">
         <h3 id="modal-add-mat-title" class="modal-title">Add Custom Material to BOM</h3>
-        <button type="button" class="btn-icon modal-close" aria-label="Close modal">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        <button type="button" class="modal-close" aria-label="Close modal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
       <form id="form-add-material">
         <div class="modal-body">
           <div class="form-group">
-            <label for="select-custom-target-variant" class="form-label">Add to Variant <span class="required-star">*</span></label>
+            <label for="select-custom-target-variant" class="form-label">Add to Variant <span
+                class="required-star">*</span></label>
             <select id="select-custom-target-variant" class="form-select">
               <!-- Dynamically populated -->
             </select>
           </div>
 
           <div class="form-group mt-3">
-            <label for="input-custom-comp-name" class="form-label">Component Name <span class="required-star">*</span></label>
-            <input type="text" id="input-custom-comp-name" class="form-input" placeholder="e.g. Laser Engraved Metal Tag" required>
+            <label for="input-custom-comp-name" class="form-label">Component Name <span
+                class="required-star">*</span></label>
+            <input type="text" id="input-custom-comp-name" class="form-input"
+              placeholder="e.g. Laser Engraved Metal Tag" required>
           </div>
 
           <div class="form-group mt-3">
             <label for="input-custom-mat-desc" class="form-label">Material / Specification Description</label>
-            <input type="text" id="input-custom-mat-desc" class="form-input" placeholder="e.g. Zinc alloy with electroplated antique brass finish">
+            <input type="text" id="input-custom-mat-desc" class="form-input"
+              placeholder="e.g. Zinc alloy with electroplated antique brass finish">
           </div>
 
           <div class="form-grid-2 mt-3">
             <div class="form-group">
-              <label for="select-custom-unit" class="form-label">Unit of Measure <span class="required-star">*</span></label>
+              <label for="select-custom-unit" class="form-label">Unit of Measure <span
+                  class="required-star">*</span></label>
               <select id="select-custom-unit" class="form-select">
                 <option value="pcs" selected>pcs (Pieces)</option>
                 <option value="yd">yd (Yards)</option>
@@ -359,15 +450,18 @@
             </div>
 
             <div class="form-group">
-              <label for="input-custom-qty" class="form-label">Qty Required Per Zipper <span class="required-star">*</span></label>
-              <input type="number" id="input-custom-qty" class="form-input font-mono" value="1" min="0.001" step="any" required>
+              <label for="input-custom-qty" class="form-label">Qty Required Per Zipper <span
+                  class="required-star">*</span></label>
+              <input type="number" id="input-custom-qty" class="form-input font-mono" value="1" min="0.001" step="any"
+                required>
             </div>
           </div>
 
           <div class="form-group mt-3">
             <label class="flex items-center gap-2" style="cursor: pointer;">
               <input type="checkbox" id="check-custom-length-dep">
-              <span class="text-xs text-slate-700 font-semibold">Quantity depends on Zipper Length + Cutting Allowance</span>
+              <span class="text-xs text-slate-700 font-semibold">Quantity depends on Zipper Length + Cutting
+                Allowance</span>
             </label>
           </div>
 
@@ -380,8 +474,92 @@
     </div>
   </div>
 
-  <!-- Toast Notification Container -->
-  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <!-- 4. CALCULATION DETAILS MODAL (MATERIAL INSPECTOR) -->
+  <div id="modal-formula-details" class="modal-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="modal-formula-title">
+    <div class="modal-box modal-box-lg calc-modal-box">
+      <div class="modal-header">
+        <div class="calc-header-top" style="flex: 1;">
+          <div class="calc-title-badge-group">
+            <div class="card-icon icon-math-sm" aria-hidden="true">
+              <svg class="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                style="width:20px;height:20px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 id="modal-formula-title" class="modal-title">Calculation Details</h3>
+              <span class="calc-sidebar-subtitle">Material-specific factory math &amp; mathematical derivation</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="modal-close" aria-label="Close modal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body calc-modal-body" id="formula-details-body">
+        <!-- Dynamically populated via app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. SAVE CUSTOM PRESET MODAL -->
+  <div id="modal-save-custom-preset" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-save-preset-title" style="display: none;">
+    <div class="modal-box modal-box-md">
+      <div class="modal-header">
+        <div class="flex items-center gap-2">
+          <div class="card-icon" style="background: #eef2ff; color: #4f46e5; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px;">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:20px;height:20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+          </div>
+          <div>
+            <h3 id="modal-save-preset-title" class="modal-title text-base font-bold text-slate-800">Save Custom Parameters</h3>
+            <span class="text-xs text-muted" style="display: block; font-size: 12px; color: #64748b;">Save modified static parameters as a reusable preset</span>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-save-preset-modal" aria-label="Close modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <form id="form-save-custom-preset">
+        <div class="modal-body p-4" style="padding: 16px;">
+          <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between" style="margin-bottom: 12px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <span class="text-xs text-slate-600 font-medium" style="font-size: 12px; color: #475569;">Target Category &amp; Unit:</span>
+            <span id="save-preset-target-badge" class="badge badge-primary font-mono text-xs font-bold" style="padding: 3px 8px;">MZ#3 (inch)</span>
+          </div>
+          <div class="form-group mb-3" style="margin-bottom: 12px;">
+            <label class="form-label text-xs font-semibold text-slate-700" for="input-preset-name" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+              Preset Name <span class="text-rose-500" style="color: #ef4444;">*</span>
+            </label>
+            <input type="text" id="input-preset-name" class="form-input font-medium" placeholder="e.g. custom-1" required style="width: 100%; font-size: 13px;">
+            <p class="form-hint text-2xs text-muted mt-1" style="font-size: 11px; color: #64748b; margin-top: 4px;">Stored format: <span id="preset-name-preview" class="font-mono font-semibold text-slate-700" style="color: #334155;">custom-1 (mz#3, inch)</span></p>
+          </div>
+          <div class="preset-diff-section mt-3" style="margin-top: 12px;">
+            <span class="text-xs font-semibold text-slate-700 mb-1.5 block" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 6px;">Modified Static Parameters:</span>
+            <div id="save-preset-diff-list" class="diff-list text-xs max-h-48 overflow-y-auto border border-slate-200 rounded-md p-2 bg-white" style="max-height: 160px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; background: #fff; font-size: 12px;">
+              <!-- Dynamically populated diff rows -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer flex items-center justify-end gap-2 p-3 bg-slate-50 border-t border-slate-200" style="padding: 12px 16px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px;">
+          <button type="button" class="btn btn-sm btn-outline" id="btn-cancel-save-preset">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary" id="btn-confirm-save-preset">Save Preset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container
+  <div id="toast-container" class="toast-container" aria-live="polite"></div> -->
 
   <!-- ==================== JAVASCRIPT APPLICATION MODULES ==================== -->
   <script src="js/unitConversion.js"></script>
@@ -397,5 +575,5 @@
   <script src="js/app.js"></script>
 
 </body>
-</html>
 
+</html>

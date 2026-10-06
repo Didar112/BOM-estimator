@@ -108,7 +108,7 @@ assert(appState.currentEstimate.items.length === 0, 'New estimate starts with 0 
 // 2. The left side shows: Items, + Add New Item
 console.log('\n--- Step 2: Verify Left Side Controls & Terminology ---');
 assert(indexHtmlSource.includes('id="heading-items-section">1. Items'), 'Left panel heading is "1. Items"');
-assert(indexHtmlSource.includes('+ Add New Item'), 'Left panel has "+ Add New Item" button');
+assert(indexHtmlSource.includes('Add New Item'), 'Left panel has "Add New Item" button');
 assert(indexHtmlSource.includes('id="btn-add-item"'), 'Button has id="btn-add-item"');
 assert(indexHtmlSource.includes('id="items-container"'), 'Container has id="items-container"');
 
@@ -298,6 +298,282 @@ const tapeRow = cz5Result.aggregatedMaterials.processedRows.find(r => r.key === 
 assert(tapeRow !== undefined, 'CZ#5 Tape BOM row calculated');
 const tapeQty = tapeRow.totalQuantity !== undefined ? tapeRow.totalQuantity : tapeRow.requiredQuantity;
 assert(Math.abs(tapeQty - 9.3607) < 0.05, `CZ#5 Tape quantity matches formula ~9.36 KG (Got: ${tapeQty})`);
+
+// 30. Verify MZ#4 complete removal
+console.log('\n--- Step 30: Verify MZ#4 Complete Removal ---');
+assert(!indexHtmlSource.includes('value="mz_4"'), 'index.html has NO mz_4 option');
+assert(!indexHtmlSource.includes('>MZ#4<'), 'index.html has NO MZ#4 option text');
+assert(!appJsSource.includes("key: 'mz_4'"), 'app.js SUPPORTED_ITEM_VARIANTS has NO mz_4');
+assert(!appJsSource.includes("vSize === '#4' ? 'mz_4'"), 'app.js category size detection has NO mz_4');
+
+// 31. Verify Calculation Details Modal
+console.log('\n--- Step 31: Verify Calculation Details Modal ---');
+assert(indexHtmlSource.includes('id="modal-formula-details"'), 'index.html contains Calculation Details modal (#modal-formula-details)');
+assert(indexHtmlSource.includes('id="formula-details-body"'), 'index.html contains #formula-details-body inside modal');
+assert(appJsSource.includes("openModal('modal-formula-details')"), 'app.js opens modal-formula-details on calculation view');
+assert(!indexHtmlSource.includes('id="btn-open-formula-modal"'), 'Calculation Details button is removed from Select Item card header');
+
+// 32. Verify Production Parameter Equal-Space Alignment
+console.log('\n--- Step 32: Verify Production Parameter Equal-Space Alignment ---');
+const styleCssSource = fs.readFileSync(path.join(__dirname, 'css', 'style.css'), 'utf8');
+assert(styleCssSource.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), 'style.css configures 2 equal-width columns for parameter grids');
+assert(styleCssSource.includes('.calc-modal-box'), 'style.css contains styles for .calc-modal-box');
+
+// 33. Verify Tape loss rate insertion & label renaming
+console.log('\n--- Step 33: Verify Tape loss rate in Item Cards and Select Item Panel ---');
+renderItemsList();
+const renderedItemsHtml = mockElements['items-container'].innerHTML;
+assert(renderedItemsHtml.includes('<span>Tape loss rate</span>'), 'Item cards display "Tape loss rate" label');
+assert(!renderedItemsHtml.includes('<span>Loss %</span>'), 'Item cards do NOT use old "Loss %" label');
+
+renderSelectItemPanel();
+const renderedSelectItemHtml = mockElements['select-item-config-body'].innerHTML;
+assert(renderedSelectItemHtml.includes('Tape loss rate'), 'Select Item panel contains "Tape loss rate"');
+assert(renderedSelectItemHtml.includes('input-group-tape-loss'), 'Select Item panel contains input for tape loss rate');
+assert(renderedSelectItemHtml.includes('preview-tape-loss'), 'Select Item panel contains preview for tape loss rate');
+
+// 34. Verify Real-time Total MTR and Loss % recalculation when quantity increases
+console.log('\n--- Step 34: Verify Total MTR & Loss % Update on Quantity Change ---');
+appState.currentEstimate.items = [{
+  id: 'test_item_qty_1',
+  category: 'cz',
+  zipperSize: '#5',
+  zipperType: 'closed_end',
+  length: 7.5,
+  lengthUnit: 'inch',
+  quantity: 50,
+  allowance: 1.78,
+  czParams: { inchAllowance: 1.78 }
+}];
+appState.activeItemId = 'test_item_qty_1';
+syncStateItemsAndGroups();
+
+const colElem = createMockElement('var-loss-col-test_item_qty_1');
+const metaElem = createMockElement('variant-loss-meta');
+const inputLossElem = createMockElement('input-item-loss-test_item_qty_1');
+inputLossElem.setAttribute('data-class', 'CZC#5');
+colElem.querySelector = (sel) => {
+  if (sel === '.variant-loss-meta') return metaElem;
+  if (sel && sel.includes('input')) return inputLossElem;
+  return null;
+};
+mockElements['var-loss-col-test_item_qty_1'] = colElem;
+
+// Initial state: 50 pcs -> 12 Mtr -> 8% bracket
+updateClassLossDisplay('test_item_qty_1');
+assert(metaElem.innerHTML.includes('12 Mtr'), `Initial requirement for 50 pcs is 12 Mtr (Got: ${metaElem.innerHTML})`);
+assert(inputLossElem.value == 8, `Initial loss % for 12 Mtr is 8% (Got: ${inputLossElem.value})`);
+
+// User increases quantity to 1000 pcs (236 Mtr -> 3% bracket)
+handleItemCardInput({
+  target: {
+    classList: { contains: (cls) => cls === 'input-item-qty' },
+    getAttribute: (attr) => attr === 'data-item-id' ? 'test_item_qty_1' : null,
+    value: '1000'
+  }
+});
+assert(metaElem.innerHTML.includes('236 Mtr'), `Updated requirement for 1000 pcs is 236 Mtr (Got: ${metaElem.innerHTML})`);
+assert(inputLossElem.value == 3, `Dynamic loss % for 236 Mtr updated to 3% (Got: ${inputLossElem.value})`);
+
+// User increases quantity to 25000 pcs (5,893 Mtr -> 2% bracket)
+handleItemCardInput({
+  target: {
+    classList: { contains: (cls) => cls === 'input-item-qty' },
+    getAttribute: (attr) => attr === 'data-item-id' ? 'test_item_qty_1' : null,
+    value: '25000'
+  }
+});
+assert(metaElem.innerHTML.includes('5,893 Mtr'), `Updated requirement for 25000 pcs is 5,893 Mtr (Got: ${metaElem.innerHTML})`);
+assert(inputLossElem.value == 2, `Dynamic loss % for 5,893 Mtr updated to 2% (Got: ${inputLossElem.value})`);
+
+// --- Step 35: Verify BoM calculation preview output badges in Select Item tab ---
+console.log('\n--- Step 35: Verify BoM calculation preview output badges in Select Item tab ---');
+
+// 1. CZ#5 Preview Verification
+appState.currentEstimate.items = [{
+  id: 'test_item_cz5',
+  name: 'CZ#5',
+  displayName: 'CZ#5',
+  category: 'cz',
+  zipperSize: '#5',
+  zipperType: 'open_end',
+  length: 7.5,
+  lengthUnit: 'inch',
+  quantity: 1000,
+  allowance: 1.78
+}];
+appState.activeItemId = 'test_item_cz5';
+syncStateItemsAndGroups();
+updateLiveCalculations();
+
+const czItem = appState.currentEstimate.items[0];
+const czPreviews = getCategoryParamPreviewData(czItem);
+assert(czPreviews.czTop !== '—' && czPreviews.czTop !== 'Top Stop: 0.00 KG', `CZ#5 Top Stop preview displays non-zero calculation (Got: ${czPreviews.czTop})`);
+assert(czPreviews.czBottom !== '—' && czPreviews.czBottom !== 'Bottom Stop: 0.00 KG', `CZ#5 Bottom Stop preview displays non-zero calculation (Got: ${czPreviews.czBottom})`);
+assert(czPreviews.czResin !== '—' && czPreviews.czResin !== 'Resin: 0.00 KG', `CZ#5 Resin preview displays non-zero calculation (Got: ${czPreviews.czResin})`);
+assert(czPreviews.czTollilon1 !== '—' && czPreviews.czTollilon1 !== 'Tollilon #1: 0.00 U', `CZ#5 Tollilon 1 preview displays non-zero calculation (Got: ${czPreviews.czTollilon1})`);
+assert(czPreviews.czTollilon2 !== '—' && !czPreviews.czTollilon2.includes('0.00 U'), `CZ#5 Tollilon 2 preview displays non-zero calculation (Got: ${czPreviews.czTollilon2})`);
+assert(czPreviews.czUTop !== '—' && czPreviews.czUTop !== 'U-Top: 0 Pcs', `CZ#5 U-Top preview displays non-zero calculation (Got: ${czPreviews.czUTop})`);
+assert(czPreviews.slider !== '—', `CZ#5 Slider preview displays calculated pcs (Got: ${czPreviews.slider})`);
+assert(czPreviews.pinBox === '—', `CZ#5 Pin Box preview is excluded for CZ (Got: ${czPreviews.pinBox})`);
+
+// 2. MZ#3 Preview Verification & Newly Added Badges
+appState.currentEstimate.items = [{
+  id: 'test_item_mz3',
+  name: 'MZ#3',
+  displayName: 'MZ#3',
+  category: 'mz',
+  zipperSize: '#3',
+  zipperType: 'open_end',
+  length: 7.5,
+  lengthUnit: 'inch',
+  quantity: 1000,
+  allowance: 1.78
+}];
+appState.activeItemId = 'test_item_mz3';
+syncStateItemsAndGroups();
+updateLiveCalculations();
+
+const mzItem = appState.currentEstimate.items[0];
+const mzPreviews = getCategoryParamPreviewData(mzItem);
+assert(mzPreviews.pinBox !== '—' && !mzPreviews.pinBox.startsWith('Pin Box: 0 Pcs'), `MZ#3 Open-End Pin Box preview displays calculated pcs (Got: ${mzPreviews.pinBox})`);
+assert(mzPreviews.mzTape !== '—' && mzPreviews.mzTape !== 'Tape: 0.00 KG', `MZ#3 Tape preview displays non-zero calculation (Got: ${mzPreviews.mzTape})`);
+assert(mzPreviews.mzTeeth !== '—' && mzPreviews.mzTeeth !== 'Teeth Wire: 0.00 KG', `MZ#3 Teeth Wire preview displays non-zero calculation (Got: ${mzPreviews.mzTeeth})`);
+assert(mzPreviews.mzTeethLoss !== '—' && mzPreviews.mzTeethLoss !== 'Teeth Wire: 0.00 KG', `MZ#3 Teeth Loss Factor preview displays non-zero calculation (Got: ${mzPreviews.mzTeethLoss})`);
+assert(mzPreviews.mzTop !== '—' && mzPreviews.mzTop !== 'Top Stop: 0.00 KG', `MZ#3 Top Stop Factor preview displays non-zero calculation (Got: ${mzPreviews.mzTop})`);
+assert(mzPreviews.mzTopDiv !== '—' && mzPreviews.mzTopDiv !== 'Top Stop: 0.00 KG', `MZ#3 Top Stop Divisor preview displays non-zero calculation (Got: ${mzPreviews.mzTopDiv})`);
+assert(mzPreviews.mzHBottom !== '—' && !mzPreviews.mzHBottom.startsWith('H-Bottom: 0 Pcs'), `MZ#3 H-Bottom preview displays non-zero calculation (Got: ${mzPreviews.mzHBottom})`);
+
+const mzHTML = buildCategoryGroupHTML(mzItem, 0, 1);
+assert(mzHTML.includes(`id="preview-mz-teeth-loss-${mzItem.id}"`), `MZ configuration HTML contains preview badge for Teeth Loss Factor`);
+assert(mzHTML.includes(`id="preview-mz-top-div-${mzItem.id}"`), `MZ configuration HTML contains preview badge for Top Stop Divisor`);
+
+// 3. WIRE#5 Preview Verification
+appState.currentEstimate.items = [{
+  id: 'test_item_wire5',
+  name: 'WIRE#5 Normal Teeth',
+  displayName: 'WIRE#5 Normal Teeth',
+  category: 'wire',
+  zipperSize: '#5_normal',
+  length: 7.5,
+  lengthUnit: 'inch',
+  quantity: 1000
+}];
+appState.activeItemId = 'test_item_wire5';
+syncStateItemsAndGroups();
+updateLiveCalculations();
+
+const wireItem = appState.currentEstimate.items[0];
+const wirePreviews = getCategoryParamPreviewData(wireItem);
+assert(wirePreviews.wireAllowance !== '—' && wirePreviews.wireAllowance !== 'Req. Chain: 0.00 Mtr', `WIRE#5 Req. Chain preview displays non-zero calculation (Got: ${wirePreviews.wireAllowance})`);
+assert(wirePreviews.wireDiv !== '—' && wirePreviews.wireDiv !== 'Teeth Wire: 0.00 KG', `WIRE#5 Teeth Wire preview displays non-zero calculation (Got: ${wirePreviews.wireDiv})`);
+
+// 4. PZ#5 Preview Verification & Newly Added Badges
+appState.currentEstimate.items = [{
+  id: 'test_item_pz5',
+  name: 'PZ#5',
+  displayName: 'PZ#5',
+  category: 'pz',
+  zipperSize: '#5',
+  zipperType: 'open_end',
+  length: 7.5,
+  lengthUnit: 'inch',
+  quantity: 1000
+}];
+appState.activeItemId = 'test_item_pz5';
+syncStateItemsAndGroups();
+updateLiveCalculations();
+
+const pzItem = appState.currentEstimate.items[0];
+const pzPreviews = getCategoryParamPreviewData(pzItem);
+assert(pzPreviews.pzAllowance !== '—' && pzPreviews.pzAllowance !== 'Base Chain: 0.00 Mtr', `PZ#5 Base Chain preview displays non-zero calculation (Got: ${pzPreviews.pzAllowance})`);
+assert(pzPreviews.pzTape !== '—' && pzPreviews.pzTape !== 'Tape: 0.00 KG', `PZ#5 Tape preview displays non-zero calculation (Got: ${pzPreviews.pzTape})`);
+assert(pzPreviews.pzTapeAdd !== '—' && pzPreviews.pzTapeAdd !== 'Tape Resin: 0.00 KG', `PZ#5 Tape Add % preview displays non-zero calculation (Got: ${pzPreviews.pzTapeAdd})`);
+assert(pzPreviews.pzResin !== '—' && pzPreviews.pzResin !== 'Tape Resin: 0.00 KG', `PZ#5 Tape Factor preview displays non-zero calculation (Got: ${pzPreviews.pzResin})`);
+
+const pzHTML = buildCategoryGroupHTML(pzItem, 0, 1);
+assert(pzHTML.includes(`id="preview-pz-tape-add-${pzItem.id}"`), `PZ configuration HTML contains preview badge for Tape Add %`);
+
+// Step 36: Verify BOM Table Section is inside Right Column under Select Item
+console.log('\n--- Step 36: Verify BOM Section under Select Item & Original Grid Layout ---');
+const rightColStart36 = indexHtmlSource.indexOf('<div class="right-column"');
+const rightColEnd36 = indexHtmlSource.indexOf('</main>');
+const rightColContent36 = indexHtmlSource.slice(rightColStart36, rightColEnd36);
+const selectItemIndex36 = rightColContent36.indexOf('id="section-select-item"');
+const bomSectionIndex36 = rightColContent36.indexOf('id="section-bom-materials"');
+
+assert(bomSectionIndex36 !== -1, 'BOM materials section (#section-bom-materials) is inside right-column');
+assert(selectItemIndex36 !== -1, 'Select Item section (#section-select-item) is inside right-column');
+assert(bomSectionIndex36 > selectItemIndex36, 'BOM section is positioned under the Select Item panel');
+
+// Check style.css grid definition allocates 55% for right column (45/55 split)
+const freshStyleCss = fs.readFileSync(path.join(__dirname, 'css', 'style.css'), 'utf8');
+assert(freshStyleCss.includes('minmax(320px, 45%) minmax(0, 55%)'), 'style.css maintains 45/55 grid layout to fit BoM table without horizontal scroll');
+
+// Step 37: Verify View BoM & Merge BoM Buttons and Merged BOM Behavior
+console.log('\n--- Step 37: Verify View BoM & Merge BoM Buttons and Merged BOM ---');
+assert(indexHtmlSource.includes('id="btn-view-bom"'), 'index.html contains #btn-view-bom');
+assert(indexHtmlSource.includes('View BoM'), 'index.html contains "View BoM" button text');
+assert(indexHtmlSource.includes('id="btn-merge-bom"'), 'index.html contains #btn-merge-bom');
+assert(indexHtmlSource.includes('id="btn-merge-bom-text">Merge BoM</span>'), 'index.html contains "Merge BoM" button text');
+
+// Test Merged BOM calculation and rendering
+appState.currentEstimate.items = [
+  {
+    id: 'cz5_item_1',
+    name: 'CZ#5 Item 1',
+    category: 'cz',
+    zipperSize: '#5',
+    zipperType: 'closed_end',
+    length: 7.5,
+    lengthUnit: 'inch',
+    quantity: 1000,
+    lossPercent: 3.0,
+    czParams: { inchAllowance: 1.78, tapeDivisor: 54.5 }
+  },
+  {
+    id: 'cz5_item_2',
+    name: 'CZ#5 Item 2',
+    category: 'cz',
+    zipperSize: '#5',
+    zipperType: 'closed_end',
+    length: 9.0,
+    lengthUnit: 'inch',
+    quantity: 2000,
+    lossPercent: 3.0,
+    czParams: { inchAllowance: 1.78, tapeDivisor: 54.5 }
+  },
+  {
+    id: 'mz5_item_3',
+    name: 'MZ#5 Item 3',
+    category: 'mz',
+    zipperSize: '#5',
+    zipperType: 'closed_end',
+    length: 7.5,
+    lengthUnit: 'inch',
+    quantity: 1000,
+    lossPercent: 3.0,
+    mzParams: { inchAllowance: 1.97, tapeDivisor: 71.0 }
+  }
+];
+
+syncStateItemsAndGroups();
+updateLiveCalculations();
+
+// In individual mode:
+appState.bomViewMode = 'individual';
+renderConsolidatedBOM(appState.lastCalculation.aggregatedMaterials);
+const indHtml = mockElements['consolidated-bom-container'].innerHTML;
+assert(indHtml.includes('bom-group-card'), 'Individual mode renders per-group cards');
+
+// In merged mode:
+appState.bomViewMode = 'merged';
+renderConsolidatedBOM(appState.lastCalculation.aggregatedMaterials);
+const mrgHtml = mockElements['consolidated-bom-container'].innerHTML;
+assert(mrgHtml.includes('bom-merged-wrapper'), 'Merged mode renders unified merged wrapper');
+assert(mrgHtml.includes('Common (2 Items)'), 'Merged mode calculates common elements together with Common badge');
+assert(mrgHtml.includes('CZ#5 Tape') || mrgHtml.includes('TOTL TAPE KG'), 'Merged mode includes merged CZ#5 Tape');
+assert(mrgHtml.includes('MZ#5') || mrgHtml.includes('Teeth Wire'), 'Merged mode shows unique items separately as usual');
 
 console.log('\n====================================================');
 console.log(`ACCEPTANCE TEST RESULTS: ${passedTests} / ${totalTests} PASSED (100% SUCCESS)`);
